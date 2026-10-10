@@ -39,7 +39,7 @@ class Configuration(commands.Cog):
             "**Quick start**\n"
             "1. `/config setup` enables Moderation and Logging.\n"
             "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
-            "3. Use `/config module` to enable or disable Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation limits and the leaderboard.\n"
+            "3. Use `/config module` to enable or disable Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation, the leaderboard, and optional award roles.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
             "6. `/config show` displays the main settings.",
@@ -72,6 +72,12 @@ class Configuration(commands.Cog):
                 if module_key == "flagged_words" and enabled and not synced:
                     await interaction.response.send_message("Module setting saved, but the bot needs the **Manage Server** permission to manage AutoMod rules.", ephemeral=True)
                     return
+        if module_key == "reputation":
+            cog = self.bot.get_cog("Reputation")
+            if cog is not None:
+                if not await cog.sync_award_roles(interaction.guild):
+                    note += " Reputation was updated, but its award roles could not be synchronized; check the bot's Manage Roles permission and role hierarchy."
+                await cog.refresh_leaderboard(interaction.guild)
         await interaction.response.send_message(f"Module **{name.value}** {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)
 
     @config.command(name="command", description="Enable or disable an individual moderation command")
@@ -344,6 +350,7 @@ class Configuration(commands.Cog):
         rep_summary = (
             f"{'enabled' if settings['modules'].get('reputation', True) else 'disabled'}; "
             f"give/take caps {settings.get('reputation_max_give', 5)}/{settings.get('reputation_max_take', 5)}; "
+            f"award roles {'enabled' if settings.get('reputation_awards_enabled', False) else 'disabled'}; "
             f"leaderboard {f'<#{rep_channel_id}>' if rep_channel_id else 'not posted'}"
         )
         await interaction.response.send_message(
@@ -372,6 +379,20 @@ class Configuration(commands.Cog):
         await self.bot.store.update_settings(interaction.guild_id, reputation_auto_thanks=enabled)
         note = " Automatic thank-you detection requires Message Content Intent enabled in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env`." if enabled else ""
         await interaction.response.send_message(f"Automatic thank-you reputation is {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)
+
+    @reputation.command(name="roles", description="Enable or disable the live reputation award roles")
+    @app_commands.describe(enabled="Give the current #1, #2, and #3 members their leaderboard roles")
+    @app_commands.guild_only()
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def reputation_roles(self, interaction: discord.Interaction, enabled: bool) -> None:
+        cog = self.bot.get_cog("Reputation")
+        if cog is None:
+            await interaction.response.send_message("The reputation feature is unavailable right now.", ephemeral=True)
+            return
+        success, message = await cog.configure_award_roles(interaction.guild, enabled)
+        if success:
+            await cog.refresh_leaderboard(interaction.guild)
+        await interaction.response.send_message(message, ephemeral=True)
 
     @reputation.command(name="leaderboard-channel", description="Set or clear the channel with the live reputation leaderboard")
     @app_commands.describe(channel="Text channel; leave empty to remove the live leaderboard")
@@ -402,12 +423,17 @@ class Configuration(commands.Cog):
     async def reputation_show(self, interaction: discord.Interaction) -> None:
         settings = await self.bot.store.get_settings(interaction.guild_id)
         channel_id = settings.get("reputation_leaderboard_channel_id")
+        first_role_id = settings.get("reputation_first_place_role_id")
+        favorites_role_id = settings.get("reputation_favorites_role_id")
         await interaction.response.send_message(
             f"**Reputation:** {'enabled' if settings['modules'].get('reputation', True) else 'disabled'}\n"
             f"**Maximum give:** {settings.get('reputation_max_give', 5)} per command\n"
             f"**Maximum take:** {settings.get('reputation_max_take', 5)} per command\n"
             f"**Automatic thank-you awards:** {'enabled' if settings.get('reputation_auto_thanks', True) else 'disabled'}\n"
-            f"**Live leaderboard:** {f'<#{channel_id}>' if channel_id else 'not configured'}",
+            f"**Live leaderboard:** {f'<#{channel_id}>' if channel_id else 'not configured'}\n"
+            f"**Award roles:** {'enabled' if settings.get('reputation_awards_enabled', False) else 'disabled'}\n"
+            f"**#1 role:** {f'<@&{first_role_id}>' if first_role_id else 'not created'}\n"
+            f"**#2–#3 role:** {f'<@&{favorites_role_id}>' if favorites_role_id else 'not created'}",
             ephemeral=True,
         )
 

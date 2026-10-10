@@ -71,59 +71,96 @@ class Help(commands.Cog):
     @app_commands.check(staff_member)
     async def staff_help(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(
-            title="Staff Command Reference",
+            title="Staff Toolkit",
             description=(
-                "Commands are available only when their module is enabled and you have the required Discord permissions. "
-                "Use `/config show` to review this server's settings."
+                "Choose a section below to find the right command. Commands require the listed Discord permissions "
+                "and their bot module must be enabled. Use `/config show` to review this server's setup."
             ),
-            color=discord.Color.dark_teal(),
+            color=discord.Color.from_rgb(75, 105, 190),
         )
         embed.add_field(
-            name="Member commands",
+            name="💬 Member tools · available to everyone",
             value=(
-                "`/staff-help` — show this staff command reference.\n"
-                "`/help` — member-facing command guide.\n"
-                "`/rep give <member> <amount>` — award reputation (server-configured maximum).\n"
-                "`/rep take <member> <amount>` — remove reputation (server-configured maximum).\n"
-                "`/rep score [member]` — check reputation and rank.\n"
-                "`/rep leaderboard` — view the server leaderboard.\n"
-                "Reply with `.tr` or `.tr <language code>` to translate a message into English when Translator is enabled."
+                "`/help` — show the member command guide.\n"
+                "`/rep give <member> <amount>` · `/rep take <member> <amount>` — change reputation within the configured limits.\n"
+                "`/rep score [member]` — view a score and rank; `/rep leaderboard` — view the standings.\n"
+                "Reply `.tr` or `.tr <language code>` to a message to translate it into English when Translator is enabled."
             ),
             inline=False,
         )
         embed.add_field(
-            name="Moderation — requires Moderate Members",
+            name="🛡️ Moderation · requires Moderate Members",
             value=(
                 "`/mod warn <member> <reason>` — record a warning.\n"
                 "`/mod timeout <member> <minutes> <reason>` — mute a member.\n"
                 "`/mod unmute <member> <reason>` — remove a mute.\n"
-                "`/mod history <member>` — view saved moderation cases."
+                "`/mod history <member>` — review saved cases and reasons."
             ),
             inline=False,
         )
         embed.add_field(
-            name="Member actions — requires Kick Members or Ban Members",
+            name="🚪 Member actions · requires Kick Members or Ban Members",
             value=(
-                "`/mod kick <member> <reason>` — kick a member (Kick Members).\n"
-                "`/mod ban <member> <reason>` and `/mod unban <user_id> <reason>` — manage bans (Ban Members)."
+                "`/mod kick <member> <reason>` — remove a member from the server.\n"
+                "`/mod ban <member> <reason>` · `/mod unban <user_id> <reason>` — manage bans."
             ),
             inline=False,
         )
         embed.add_field(
-            name="Message management — requires Manage Messages",
+            name="🧹 Message cleanup · requires Manage Messages",
             value="`/mod purge <amount> [reason]` — delete recent messages; the reason is optional.",
             inline=False,
         )
         embed.add_field(
-            name="Server configuration — requires Manage Server",
+            name="⚙️ Core setup · requires Manage Server",
             value=(
-                "`/config setup`, `/config guide`, `/config show` — setup and review settings.\n"
-                "`/config module` and `/config command` — enable or disable modules and moderation commands.\n"
-                "`/config log-channel`, `/config log-route` — configure log destinations.\n"
-                "`/config flagged-words enabled|add|remove|list` — manage word filters.\n"
-                "`/config escalation show|enabled|window|level|level-remove|alert-channel|alert-threshold|alert-role|mute-role` — configure moderation escalation.\n"
-                "`/config reputation show|max-give|max-take|auto-thanks|leaderboard-channel` — configure reputation.\n"
-                "`/config welcome-channel`, `/config welcome-message` — configure welcome messages."
+                "`/config setup` · `/config guide` · `/config show` — initialize and review the server setup.\n"
+                "`/config module <name> <enabled>` — toggle a whole feature.\n"
+                "`/config command <name> <enabled>` — toggle an individual moderation command."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📋 Logging · requires Manage Server",
+            value=(
+                "`/config log-channel <channel>` — set the default destination.\n"
+                "`/config log-route <category> [channel]` — route a category separately or reset it to default."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🤖 AutoMod · requires Manage Server",
+            value=(
+                "`/config flagged-words enabled` — toggle Discord's commonly flagged words preset.\n"
+                "`/config flagged-words add|remove|list` — manage custom blocked terms.\n"
+                "Invite and repeat filters are toggled with `/config module` and need Message Content Intent."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="📈 Escalation · requires Manage Server",
+            value=(
+                "`/config escalation show|enabled|window` — review and toggle escalation.\n"
+                "`/config escalation level|level-remove` — set or remove a threshold and action.\n"
+                "`/config escalation alert-channel|alert-threshold|alert-role` — configure staff alerts.\n"
+                "`/config escalation mute-role` — select the server's mute role."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="⭐ Reputation · requires Manage Server",
+            value=(
+                "`/config reputation show|max-give|max-take|auto-thanks` — tune member reputation.\n"
+                "`/config reputation leaderboard-channel` — set or clear the live board.\n"
+                "`/config reputation roles <enabled>` — enable or remove the #1 **Most Loved** and #2–#3 **Community Favorite** roles; needs Manage Roles."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="👋 Welcome · requires Manage Server",
+            value=(
+                "`/config welcome-channel <channel>` — select the welcome destination.\n"
+                "`/config welcome-message <message>` — customize the welcome text."
             ),
             inline=False,
         )

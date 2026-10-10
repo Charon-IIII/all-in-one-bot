@@ -34,6 +34,9 @@ DEFAULTS: dict[str, Any] = {
     "reputation_auto_thanks": True,
     "reputation_leaderboard_channel_id": None,
     "reputation_leaderboard_message_id": None,
+    "reputation_awards_enabled": False,
+    "reputation_first_place_role_id": None,
+    "reputation_favorites_role_id": None,
 }
 
 
@@ -297,26 +300,36 @@ class Store:
                 row = await cur.fetchone()
             return int(row[0]) if row else 0
 
-    async def reputation_rank(self, guild_id: int, user_id: int) -> int | None:
-        assert self.db is not None
-        async with self._write_lock:
-            async with self.db.execute(
-                "SELECT score, (SELECT COUNT(*) FROM reputation_scores AS higher "
-                "WHERE higher.guild_id=score_row.guild_id AND higher.score>score_row.score) "
-                "FROM reputation_scores AS score_row WHERE guild_id=? AND user_id=?",
-                (guild_id, user_id),
-            ) as cur:
-                row = await cur.fetchone()
-            if row is None:
-                return None
-            return int(row[1]) + 1
-
-    async def reputation_leaderboard(self, guild_id: int, limit: int = 10) -> list[aiosqlite.Row]:
+    async def reputation_rank(
+        self, guild_id: int, user_id: int, member_ids: set[int] | None = None
+    ) -> int | None:
         assert self.db is not None
         async with self._write_lock:
             async with self.db.execute(
                 "SELECT user_id, score FROM reputation_scores WHERE guild_id=? "
-                "ORDER BY score DESC, user_id ASC LIMIT ?",
-                (guild_id, limit),
+                "ORDER BY score DESC, user_id ASC",
+                (guild_id,),
             ) as cur:
+                rows = await cur.fetchall()
+            if member_ids is not None:
+                rows = [row for row in rows if int(row["user_id"]) in member_ids]
+            for rank, row in enumerate(rows, 1):
+                if int(row["user_id"]) == user_id:
+                    return rank
+            return None
+
+    async def reputation_leaderboard(
+        self, guild_id: int, limit: int | None = 10
+    ) -> list[aiosqlite.Row]:
+        assert self.db is not None
+        async with self._write_lock:
+            query = (
+                "SELECT user_id, score FROM reputation_scores WHERE guild_id=? "
+                "ORDER BY score DESC, user_id ASC"
+            )
+            params: tuple[int, ...] = (guild_id,)
+            if limit is not None:
+                query += " LIMIT ?"
+                params += (limit,)
+            async with self.db.execute(query, params) as cur:
                 return await cur.fetchall()
