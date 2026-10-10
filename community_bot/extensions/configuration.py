@@ -41,7 +41,7 @@ class Configuration(commands.Cog):
             "3. Use `/config module` to enable Welcome, AutoMod, or Translator individually.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
-            "6. To use translations, enable Message Content Intent in the Discord Developer Portal and `.env`, set `DEEPL_API_KEY`, enable Translator, and reply with `.tr` or `.tr PL`.\n"
+            "6. To use translations, enable Message Content Intent in the Discord Developer Portal and `.env`, set `DEEPL_API_KEY`, enable Translator, and reply to a message with `.tr` for automatic language detection or `.tr <language code>` to specify one, such as `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL.\n"
             "7. `/config show` displays the main settings.",
             ephemeral=True,
         )
@@ -56,7 +56,7 @@ class Configuration(commands.Cog):
         note = " The invite and repeat filters require the Message Content Intent; Discord's native word filter blocks messages before they are sent." if name.value == "automod" and enabled else ""
         if name.value == "translator":
             import os
-            note = " Reply to a message with `.tr` or `.tr PL`. If `DEEPL_API_KEY` is missing from `.env`, add it there and restart the bot."
+            note = " Reply to a message with `.tr` for automatic language detection or `.tr <language code>` to specify a source language, such as `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL. If `DEEPL_API_KEY` is missing from `.env`, add it there and restart the bot."
             if enabled and not os.getenv("DEEPL_API_KEY", "").strip():
                 note = " Translator is enabled, but needs `DEEPL_API_KEY` in `.env` and a bot restart."
         if module_key in {"automod", "flagged_words"}:

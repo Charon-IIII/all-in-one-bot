@@ -86,15 +86,15 @@ class Translator(commands.Cog):
         if not parts or parts[0].casefold() != ".tr":
             return
         if len(parts) > 2:
-            await message.reply("Use `.tr` or `.tr <language code>`, for example `.tr PL`.", mention_author=False)
+            await message.reply("Use `.tr` for automatic language detection or `.tr <language code>` to specify the source language, such as `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL.", mention_author=False)
             return
         source_language = parts[1].upper() if len(parts) == 2 else None
         if source_language and (len(source_language) != 2 or not source_language.isascii() or not source_language.isalpha()):
-            await message.reply("Please use a two-letter language code, for example `.tr PL`.", mention_author=False)
+            await message.reply("Please use a two-letter source code supported by DeepL, such as `.tr PL` or `.tr DE`.", mention_author=False)
             return
         reference = message.reference
         if reference is None or reference.message_id is None:
-            await message.reply("Reply to a message with `.tr` or `.tr <language code>`.", mention_author=False)
+            await message.reply("Reply to a message with `.tr` for automatic language detection or `.tr <language code>` to specify one, such as `.tr PL` or `.tr DE`.", mention_author=False)
             return
 
         cooldown_key = (message.guild.id, message.author.id)

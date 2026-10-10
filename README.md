@@ -10,7 +10,7 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
 - **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`.
-- **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr <language code> e.g. PL` to choose a source language. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
+- **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr <language code>` to choose a source language, for example `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
 
 Features are configured per server. Slash commands are registered globally by default; set `SYNC_GUILD_ID` in `.env` while developing to update a test server immediately.
 
@@ -42,7 +42,7 @@ Progressive sanctions can be configured with `/config escalation window`, `/conf
 
 For message, member, channel, role, kick, ban, and unban logs, grant **View Audit Log**. The bot matches recent audit entries by action, target, and channel where available so moderators and reasons appear when Discord provides an unambiguous match. If a match is missing or ambiguous, the log says so rather than guessing. Invite/repeat-filter hits are sent to the `automod` log route and are never added to moderation cases.
 
-For the translator, add `DEEPL_API_KEY` to `.env`, restart the bot, enable Translator via `/config module`, then reply to a message with `.tr` or `.tr PL`.
+For the translator, add `DEEPL_API_KEY` to `.env`, restart the bot, enable Translator via `/config module`, then reply to a message with `.tr` for automatic source-language detection or `.tr <language code>` to specify one, such as `.tr PL` or `.tr DE`. The command accepts a two-letter source code supported by DeepL.
 
 ## Deploy on Oracle Cloud Infrastructure Always Free
 
