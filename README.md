@@ -10,7 +10,7 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
 - **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`.
-- **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr PL` to choose a source language. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
+- **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr <language code> e.g. PL` to choose a source language. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
 
 Features are configured per server. Slash commands are registered globally by default; set `SYNC_GUILD_ID` in `.env` while developing to update a test server immediately.
 
