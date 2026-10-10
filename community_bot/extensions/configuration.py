@@ -244,6 +244,9 @@ class Configuration(commands.Cog):
     @app_commands.describe(role="Staff-Rolle", enabled="Soll diese Rolle erwähnt werden?")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_alert_role(self, interaction: discord.Interaction, role: discord.Role, enabled: bool) -> None:
+        if role.is_default():
+            await interaction.response.send_message("@everyone kann nicht als Staff-Erwähnung gesetzt werden.", ephemeral=True)
+            return
         settings = await self.bot.store.get_settings(interaction.guild_id)
         role_ids = set(settings.get("escalation_alert_role_ids", []))
         if enabled:
