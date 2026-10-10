@@ -18,7 +18,7 @@ Features are configured per server. Slash commands are registered globally by de
 
 - Python 3.11 or newer
 - A Discord application and bot token
-- Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is also needed when using a server mute role
+- Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, View Audit Log, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is needed when using a server mute role, and Manage Webhooks is needed when enabling Translator
 - The **Server Members Intent** enabled in the Discord Developer Portal for welcome and member join/leave logging
 - Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod, the `.tr` reply command, and full message text in edit/delete logs. Without it, slash commands work and message event metadata is still logged.
 - Optional: a DeepL API key as `DEEPL_API_KEY` in `.env` for the translator module.
