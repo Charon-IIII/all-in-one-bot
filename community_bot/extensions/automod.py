@@ -112,10 +112,14 @@ class AutoMod(commands.Cog):
 
         if reason is None:
             return
+        suppressed = getattr(self.bot, "suppressed_message_deletes", set())
+        suppressed.add(message.id)
         try:
             await message.delete()
         except discord.HTTPException:
+            suppressed.discard(message.id)
             return
+        self.bot.dispatch("automod_block", message.guild, message.author, message.channel, reason, content)
         duration = max(60, min(int(settings.get("automod_timeout_seconds", 300)), 28 * 24 * 60 * 60))
         if message.author.top_role < message.guild.me.top_role and message.guild.me.guild_permissions.moderate_members:
             try:

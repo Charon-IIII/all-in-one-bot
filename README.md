@@ -5,12 +5,12 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 ## Included modules
 
 - **Moderation:** warn, mute/timeout, unmute, kick, ban, and unban slash commands require a non-empty reason; purge accepts an optional reason. Configure a server mute role and timed role mutes survive restarts; without a configured role the bot uses Discord timeouts. Member cases persist the moderator, reason, timestamp, and DM delivery status. Affected users receive an action/moderator/reason/case-number DM when their privacy settings allow it.
-- **Rule-based escalation:** optional case-count escalation on `/mod warn`, with a rolling time window and configurable warning/timeout/kick/ban thresholds. It starts disabled. Repeated-case alerts can be sent to a private channel and optionally mention configured staff roles.
+- **Rule-based escalation:** optional case-count escalation on `/mod warn`, with a rolling time window and configurable warning/timeout/kick/ban thresholds. It starts disabled. Repeated-case staff alerts can be sent to a private channel and optionally mention configured staff roles.
 - **Logging:** message edits/deletions, member joins/leaves, moderation cases, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
 - **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`.
-- **Translator integration point:** ready for the existing DeepL bot to be brought in as an optional extension.
+- **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr PL` to choose a source language. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
 
 Features are configured per server. Slash commands are registered globally by default; set `SYNC_GUILD_ID` in `.env` while developing to update a test server immediately.
 
@@ -20,7 +20,8 @@ Features are configured per server. Slash commands are registered globally by de
 - A Discord application and bot token
 - Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is also needed when using a server mute role
 - The **Server Members Intent** enabled in the Discord Developer Portal for welcome and member join/leave logging
-- Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod and full message text in edit/delete logs. Without it, slash commands work and message event metadata is still logged.
+- Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod, the `.tr` reply command, and full message text in edit/delete logs. Without it, slash commands work and message event metadata is still logged.
+- Optional: a DeepL API key as `DEEPL_API_KEY` in `.env` for the translator module.
 
 ## Run locally
 
@@ -33,11 +34,15 @@ Copy-Item .env.example .env
 python -m community_bot
 ```
 
-Invite the bot with the `bot` and `applications.commands` scopes and the permissions above, including Manage Server for native AutoMod rules. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`. Use `/config command` to toggle individual moderation commands such as `mod-purge`.
+Invite the bot with the `bot` and `applications.commands` scopes and the permissions above, including Manage Server for native AutoMod rules. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`; `/config guide` shows the next steps. Use `/config command` to toggle individual moderation commands such as `mod-purge`.
 
 Set the default logging destination with `/config log-channel`, then optionally route a category with `/config log-route` (categories: `messages`, `members`, `channels`, `roles`, `voice`, `moderation`, `automod`). Passing no channel to a route resets it to the default channel. Enable `flagged-words` in `/config module`, or use `/config flagged-words enabled`; manage the custom list with `/config flagged-words add`, `remove`, and `list`. The native preset and custom list require Discord AutoMod rule permissions; Discord's preset requires Community features on the server. Discord displays its own block feedback to the member, and the bot logs the matched rule in the `automod` category.
 
 Kulturistan's progressive sanctions can be configured with `/config escalation window`, `/config escalation level`, and `/config escalation enabled`. The starter thresholds are a 30-minute mute on the second documented violation and a three-day mute from the third; adjust them to match staff judgement, and add kick/ban levels only if desired. Set `/config escalation mute-role` to use your server's existing role for `/mod timeout` and timeout escalation, or clear it to use Discord timeouts. The role must be below the bot's highest role and configured to restrict the relevant text/voice permissions. Timed role mutes are stored in SQLite and removed automatically after expiry, including after bot restarts. `/mod warn` applies the configured level to the next violation; direct `/mod timeout`, `/mod kick`, and `/mod ban` remain available for staff to decide severity, including immediate severe cases. `/mod unmute` removes the role mute and/or Discord timeout. Set `/config escalation alert-channel` and `/config escalation alert-threshold` for a staff review notice, then optionally add mention roles with `/config escalation alert-role`. Alerts ask staff to review and never apply an extra punishment by themselves. Counts use this bot's stored moderation cases within the configured window; cases from Dyno, Arcane, or YAGPDB are not imported.
+
+For message, member, channel, role, kick, ban, and unban logs, grant **View Audit Log**. The bot matches recent audit entries by action, target, and channel where available so moderators and reasons appear when Discord provides an unambiguous match. If a match is missing or ambiguous, the log says so rather than guessing. Invite/repeat-filter hits are sent to the `automod` log route and are never added to moderation cases.
+
+For the translator, add `DEEPL_API_KEY` to `.env`, restart the bot, enable Translator via `/config module`, then reply to a message with `.tr` or `.tr PL`.
 
 ## Deploy on Oracle Cloud Infrastructure Always Free
 

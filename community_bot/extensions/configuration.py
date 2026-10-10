@@ -27,7 +27,22 @@ class Configuration(commands.Cog):
             modules={"moderation": True, "logging": True, "welcome": False, "automod": False},
         )
         await interaction.response.send_message(
-            "Grundsetup gespeichert. Setze mit `/config log-channel` einen Logkanal; Welcome und Automod kannst du danach gezielt aktivieren.",
+            "Grundsetup gespeichert. Nächste Schritte: `/config log-channel` setzen, bei Bedarf `/config log-route` pro Kategorie anpassen und `/config guide` für die kurze Einrichtungsübersicht öffnen. Welcome, AutoMod und Translator aktivierst du nur, wenn du sie brauchst.",
+            ephemeral=True,
+        )
+
+    @config.command(name="guide", description="Kurze Einrichtungsanleitung für den Server anzeigen")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def guide(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(
+            "**Schnellstart**\n"
+            "1. `/config setup` aktiviert Moderation und Logging.\n"
+            "2. `/config log-channel` legt den Standardkanal für Logs fest; `/config log-route` weist einzelne Kategorien eigenen Kanälen zu.\n"
+            "3. `/config module` schaltet Welcome, AutoMod oder Translator einzeln an.\n"
+            "4. `/config flagged-words enabled` aktiviert Discords Commonly Flagged Words; eigene Begriffe verwaltest du mit `add`, `remove` und `list`.\n"
+            "5. `/config escalation show` zeigt Regeln; passe sie mit `/config escalation` an. AutoMod-Treffer bleiben Logs und werden nicht als Cases gezählt.\n"
+            "6. Für Übersetzungen aktiviere Message Content Intent im Discord Developer Portal und in `.env`, setze `DEEPL_API_KEY`, aktiviere Translator und antworte mit `.tr` oder `.tr PL`.\n"
+            "7. `/config show` zeigt die wichtigsten aktuellen Einstellungen.",
             ephemeral=True,
         )
 
@@ -40,7 +55,10 @@ class Configuration(commands.Cog):
         await self.bot.store.update_settings(interaction.guild_id, modules={module_key: enabled})
         note = " Für Invite- und Wiederholungsfilter wird der Message Content Intent gebraucht; der native Wortfilter blockiert Nachrichten bereits vor dem Senden." if name.value == "automod" and enabled else ""
         if name.value == "translator":
-            note = " Der Schalter ist vorbereitet; die DeepL-Erweiterung wird nach Einbindung deines Codes verfügbar."
+            import os
+            note = " Antworte auf eine Nachricht mit `.tr` oder `.tr PL`. Falls `DEEPL_API_KEY` in `.env` fehlt, richte ihn dort ein und starte den Bot neu."
+            if enabled and not os.getenv("DEEPL_API_KEY", "").strip():
+                note = " Der Translator ist aktiviert, braucht aber noch `DEEPL_API_KEY` in `.env` und einen Neustart."
         if module_key in {"automod", "flagged_words"}:
             cog = self.bot.get_cog("AutoMod")
             if cog is not None:

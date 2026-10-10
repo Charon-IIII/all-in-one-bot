@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import discord
 from discord.ext import commands
 
@@ -7,6 +9,55 @@ from discord.ext import commands
 class EventLogs(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+        self.used_audit_entries: dict[tuple[int, str, int | None], set[int]] = {}
+
+    async def audit_attribution(
+        self,
+        guild: discord.Guild,
+        actions: tuple[discord.AuditLogAction, ...],
+        target_id: int | None,
+        *,
+        channel_id: int | None = None,
+        count: int | None = None,
+    ) -> tuple[str, str] | None:
+        """Return a moderator and reason only for a fresh, matching audit entry."""
+        now = datetime.now(timezone.utc)
+        key = (guild.id, ",".join(action.name for action in actions), target_id)
+        used = self.used_audit_entries.setdefault(key, set())
+        try:
+            for action in actions:
+                async for entry in guild.audit_logs(limit=10, action=action):
+                    if entry.id in used or abs((now - entry.created_at).total_seconds()) > 12:
+                        continue
+                    entry_target_id = getattr(entry.target, "id", None)
+                    is_bulk_delete = action == discord.AuditLogAction.message_bulk_delete
+                    if target_id is not None and entry_target_id != target_id:
+                        continue
+                    extra_channel = getattr(getattr(entry, "extra", None), "channel", None)
+                    if channel_id is not None and not is_bulk_delete and getattr(extra_channel, "id", None) != channel_id:
+                        continue
+                    extra_count = getattr(getattr(entry, "extra", None), "count", None)
+                    if count is not None and extra_count is not None and extra_count != count:
+                        continue
+                    used.add(entry.id)
+                    # Keep this lightweight for long-running bots.
+                    if len(used) > 100:
+                        used.clear()
+                    actor = entry.user
+                    if actor is None:
+                        return None
+                    return (f"{actor.mention} (`{actor.id}`)", entry.reason or "Kein Grund im Audit-Log")
+        except (discord.Forbidden, discord.HTTPException):
+            return None
+        return None
+
+    @staticmethod
+    def add_attribution(embed: discord.Embed, attribution: tuple[str, str] | None) -> None:
+        if attribution:
+            embed.add_field(name="Moderator / Auslöser", value=attribution[0], inline=False)
+            embed.add_field(name="Grund", value=attribution[1][:1000], inline=False)
+        else:
+            embed.add_field(name="Moderator / Grund", value="Nicht eindeutig im Discord-Audit-Log gefunden.", inline=False)
 
     async def post(self, guild: discord.Guild, embed: discord.Embed, category: str = "messages") -> None:
         settings = await self.bot.store.get_settings(guild.id)
@@ -26,11 +77,22 @@ class EventLogs(commands.Cog):
     async def on_message_delete(self, message: discord.Message) -> None:
         if message.guild is None or message.author.bot:
             return
+        suppressed = getattr(self.bot, "suppressed_message_deletes", set())
+        if message.id in suppressed:
+            suppressed.discard(message.id)
+            return
         embed = discord.Embed(title="Nachricht gelöscht", color=discord.Color.red())
         embed.add_field(name="Autor", value=f"{message.author.mention} (`{message.author.id}`)", inline=False)
         embed.add_field(name="Kanal", value=message.channel.mention, inline=True)
         body = message.content or "Inhalt nicht verfügbar (Message Content Intent deaktiviert oder Nachricht nicht im Cache)."
         embed.add_field(name="Inhalt", value=body[:1000], inline=False)
+        attribution = await self.audit_attribution(
+            message.guild,
+            (discord.AuditLogAction.message_delete,),
+            message.author.id,
+            channel_id=message.channel.id,
+        )
+        self.add_attribution(embed, attribution)
         await self.post(message.guild, embed, "messages")
 
     @commands.Cog.listener()
@@ -38,6 +100,13 @@ class EventLogs(commands.Cog):
         if not messages or messages[0].guild is None:
             return
         embed = discord.Embed(title="Nachrichten in Masse gelöscht", description=f"{len(messages)} Nachrichten in {messages[0].channel.mention}", color=discord.Color.orange())
+        attribution = await self.audit_attribution(
+            messages[0].guild,
+            (discord.AuditLogAction.message_bulk_delete,),
+            messages[0].channel.id,
+            count=len(messages),
+        )
+        self.add_attribution(embed, attribution)
         await self.post(messages[0].guild, embed, "messages")
 
     @commands.Cog.listener()
@@ -56,7 +125,12 @@ class EventLogs(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
-        await self.post(member.guild, discord.Embed(title="Mitglied verlassen", description=f"{member} · `{member.id}`", color=discord.Color.dark_grey()), "members")
+        embed = discord.Embed(title="Mitglied verlassen", description=f"{member} · `{member.id}`", color=discord.Color.dark_grey())
+        attribution = await self.audit_attribution(member.guild, (discord.AuditLogAction.kick,), member.id)
+        if attribution:
+            embed.title = "Mitglied gekickt"
+            self.add_attribution(embed, attribution)
+        await self.post(member.guild, embed, "members")
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
@@ -72,15 +146,26 @@ class EventLogs(commands.Cog):
         if removed:
             changes.append("**Rollen entfernt:** " + ", ".join(removed))
         if changes:
-            await self.post(after.guild, discord.Embed(title=f"Mitglied geändert: {after}", description="\n".join(changes), color=discord.Color.blurple()), "members")
+            embed = discord.Embed(title=f"Mitglied geändert: {after}", description="\n".join(changes), color=discord.Color.blurple())
+            attribution = await self.audit_attribution(
+                after.guild,
+                (discord.AuditLogAction.member_update, discord.AuditLogAction.member_role_update),
+                after.id,
+            )
+            self.add_attribution(embed, attribution)
+            await self.post(after.guild, embed, "members")
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel) -> None:
-        await self.post(channel.guild, discord.Embed(title="Kanal erstellt", description=f"{channel.mention} · `{channel.id}`", color=discord.Color.green()), "channels")
+        embed = discord.Embed(title="Kanal erstellt", description=f"{channel.mention} · `{channel.id}`", color=discord.Color.green())
+        self.add_attribution(embed, await self.audit_attribution(channel.guild, (discord.AuditLogAction.channel_create,), channel.id))
+        await self.post(channel.guild, embed, "channels")
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
-        await self.post(channel.guild, discord.Embed(title="Kanal gelöscht", description=f"#{channel.name} · `{channel.id}`", color=discord.Color.red()), "channels")
+        embed = discord.Embed(title="Kanal gelöscht", description=f"#{channel.name} · `{channel.id}`", color=discord.Color.red())
+        self.add_attribution(embed, await self.audit_attribution(channel.guild, (discord.AuditLogAction.channel_delete,), channel.id))
+        await self.post(channel.guild, embed, "channels")
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel) -> None:
@@ -95,15 +180,21 @@ class EventLogs(commands.Cog):
             if before.topic != after.topic:
                 changes.append(f"**Thema vorher:** {(before.topic or '(leer)')[:300]}\n**Thema nachher:** {(after.topic or '(leer)')[:300]}")
         if changes:
-            await self.post(after.guild, discord.Embed(title=f"Kanal geändert: #{after.name}", description="\n".join(changes), color=discord.Color.gold()), "channels")
+            embed = discord.Embed(title=f"Kanal geändert: #{after.name}", description="\n".join(changes), color=discord.Color.gold())
+            self.add_attribution(embed, await self.audit_attribution(after.guild, (discord.AuditLogAction.channel_update,), after.id))
+            await self.post(after.guild, embed, "channels")
 
     @commands.Cog.listener()
     async def on_guild_role_create(self, role: discord.Role) -> None:
-        await self.post(role.guild, discord.Embed(title="Rolle erstellt", description=f"{role.mention} · `{role.id}`", color=discord.Color.green()), "roles")
+        embed = discord.Embed(title="Rolle erstellt", description=f"{role.mention} · `{role.id}`", color=discord.Color.green())
+        self.add_attribution(embed, await self.audit_attribution(role.guild, (discord.AuditLogAction.role_create,), role.id))
+        await self.post(role.guild, embed, "roles")
 
     @commands.Cog.listener()
     async def on_guild_role_delete(self, role: discord.Role) -> None:
-        await self.post(role.guild, discord.Embed(title="Rolle gelöscht", description=f"{role.name} · `{role.id}`", color=discord.Color.red()), "roles")
+        embed = discord.Embed(title="Rolle gelöscht", description=f"{role.name} · `{role.id}`", color=discord.Color.red())
+        self.add_attribution(embed, await self.audit_attribution(role.guild, (discord.AuditLogAction.role_delete,), role.id))
+        await self.post(role.guild, embed, "roles")
 
     @commands.Cog.listener()
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role) -> None:
@@ -117,7 +208,9 @@ class EventLogs(commands.Cog):
         if before.mentionable != after.mentionable:
             changes.append(f"**Erwähnbar:** {before.mentionable} → {after.mentionable}")
         if changes:
-            await self.post(after.guild, discord.Embed(title=f"Rolle geändert: {after.name}", description="\n".join(changes), color=discord.Color.gold()), "roles")
+            embed = discord.Embed(title=f"Rolle geändert: {after.name}", description="\n".join(changes), color=discord.Color.gold())
+            self.add_attribution(embed, await self.audit_attribution(after.guild, (discord.AuditLogAction.role_update,), after.id))
+            await self.post(after.guild, embed, "roles")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
@@ -133,11 +226,15 @@ class EventLogs(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_ban_add(self, guild: discord.Guild, user: discord.User) -> None:
-        await self.post(guild, discord.Embed(title="Ban erkannt", description=f"{user} · `{user.id}`", color=discord.Color.red()), "moderation")
+        embed = discord.Embed(title="Ban erkannt", description=f"{user} · `{user.id}`", color=discord.Color.red())
+        self.add_attribution(embed, await self.audit_attribution(guild, (discord.AuditLogAction.ban,), user.id))
+        await self.post(guild, embed, "moderation")
 
     @commands.Cog.listener()
     async def on_guild_ban_remove(self, guild: discord.Guild, user: discord.User) -> None:
-        await self.post(guild, discord.Embed(title="Entbannung erkannt", description=f"{user} · `{user.id}`", color=discord.Color.green()), "moderation")
+        embed = discord.Embed(title="Entbannung erkannt", description=f"{user} · `{user.id}`", color=discord.Color.green())
+        self.add_attribution(embed, await self.audit_attribution(guild, (discord.AuditLogAction.unban,), user.id))
+        await self.post(guild, embed, "moderation")
 
     @commands.Cog.listener()
     async def on_mod_case(self, guild, target, moderator, action: str, reason: str, case_id: int, dm_sent: bool) -> None:
@@ -168,6 +265,15 @@ class EventLogs(commands.Cog):
         embed.add_field(name="Regel-ID", value=f"`{action.rule_id}`", inline=True)
         if action.content:
             embed.add_field(name="Nachricht", value=action.content[:900], inline=False)
+        await self.post(guild, embed, "automod")
+
+    @commands.Cog.listener()
+    async def on_automod_block(self, guild, member, channel, reason: str, content: str) -> None:
+        embed = discord.Embed(title="AutoMod: Nachricht blockiert", color=discord.Color.red())
+        embed.add_field(name="Mitglied", value=f"{member} (`{member.id}`)", inline=False)
+        embed.add_field(name="Kanal", value=channel.mention, inline=True)
+        embed.add_field(name="Treffer", value=reason[:300], inline=False)
+        embed.add_field(name="Nachricht", value=content[:900], inline=False)
         await self.post(guild, embed, "automod")
 
 

@@ -16,6 +16,7 @@ EXTENSIONS = (
     "community_bot.extensions.logging_events",
     "community_bot.extensions.welcome",
     "community_bot.extensions.automod",
+    "community_bot.extensions.translator",
 )
 
 
@@ -28,6 +29,7 @@ class CommunityBot(commands.Bot):
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.settings = settings
         self.store = Store(str(settings.database_path))
+        self.suppressed_message_deletes: set[int] = set()
 
     async def setup_hook(self) -> None:
         self.settings.database_path.parent.mkdir(parents=True, exist_ok=True)
