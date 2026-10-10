@@ -8,6 +8,7 @@ from discord.ext import commands
 MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "translator"]
 COMMANDS = ["mod-warn", "mod-timeout", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
+ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
 
 
 class Configuration(commands.Cog):
@@ -16,6 +17,7 @@ class Configuration(commands.Cog):
 
     config = app_commands.Group(name="config", description="Bot-Module und Serverkanäle konfigurieren")
     flagged_words = app_commands.Group(name="flagged-words", description="Discord AutoMod-Wortfilter konfigurieren", parent=config)
+    escalation = app_commands.Group(name="escalation", description="Regelbasierte Strafen und Staff-Hinweise konfigurieren", parent=config)
 
     @config.command(name="setup", description="Standardmodule für diesen Server aktivieren")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -170,6 +172,107 @@ class Configuration(commands.Cog):
             ephemeral=True,
         )
 
+    @escalation.command(name="enabled", description="Automatische Eskalation bei /mod warn an- oder ausschalten")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_enabled(self, interaction: discord.Interaction, enabled: bool) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, escalation_enabled=enabled)
+        state = "aktiviert" if enabled else "deaktiviert"
+        await interaction.response.send_message(
+            f"Automatische Eskalation {state}. Sie wirkt nur auf neue `/mod warn`-Fälle; bestehende Bot-Cases bilden die Vorgeschichte.",
+            ephemeral=True,
+        )
+
+    @escalation.command(name="window", description="Zeitraum setzen, in dem Moderationsfälle für Eskalation zählen")
+    @app_commands.describe(days="1 bis 365 Tage")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_window(self, interaction: discord.Interaction, days: app_commands.Range[int, 1, 365]) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, escalation_window_days=days)
+        await interaction.response.send_message(f"Eskalations- und Fallhinweis-Zeitraum: **{days} Tage**.", ephemeral=True)
+
+    @escalation.command(name="level", description="Maßnahme für eine bestimmte Anzahl dokumentierter Verstöße festlegen")
+    @app_commands.describe(
+        threshold="Verstoßnummer, ab der diese Maßnahme greift (2 bis 20)",
+        action="timeout, kick oder ban",
+        duration_minutes="Nur für Timeout: mindestens 30 Minuten; ohne Angabe gelten 30 Minuten",
+    )
+    @app_commands.choices(action=[app_commands.Choice(name=x, value=x) for x in ESCALATION_ACTIONS])
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_level(
+        self,
+        interaction: discord.Interaction,
+        threshold: app_commands.Range[int, 2, 20],
+        action: app_commands.Choice[str],
+        duration_minutes: app_commands.Range[int, 30, 40320] | None = None,
+    ) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        levels = [level for level in settings.get("escalation_levels", []) if int(level.get("threshold", 0)) != threshold]
+        level = {"threshold": threshold, "action": action.value}
+        if action.value == "timeout":
+            level["duration_minutes"] = duration_minutes or 30
+        levels.append(level)
+        levels.sort(key=lambda entry: int(entry["threshold"]))
+        await self.bot.store.update_settings(interaction.guild_id, escalation_levels=levels)
+        detail = f" für {level['duration_minutes']} Minuten" if action.value == "timeout" else ""
+        await interaction.response.send_message(f"Ab Verstoß **#{threshold}** gilt **{action.value}**{detail}.", ephemeral=True)
+
+    @escalation.command(name="level-remove", description="Eine automatische Eskalationsstufe entfernen")
+    @app_commands.describe(threshold="Die gespeicherte Verstoßnummer")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_level_remove(self, interaction: discord.Interaction, threshold: app_commands.Range[int, 2, 20]) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        levels = [level for level in settings.get("escalation_levels", []) if int(level.get("threshold", 0)) != threshold]
+        if len(levels) == len(settings.get("escalation_levels", [])):
+            await interaction.response.send_message("Für diese Verstoßnummer ist keine Stufe gespeichert.", ephemeral=True)
+            return
+        await self.bot.store.update_settings(interaction.guild_id, escalation_levels=levels)
+        await interaction.response.send_message(f"Eskalationsstufe **#{threshold}** entfernt.", ephemeral=True)
+
+    @escalation.command(name="alert-channel", description="Privaten Staff-Kanal für wiederholte Fälle setzen oder leeren")
+    @app_commands.describe(channel="Nur Staff sichtbarer Textkanal; leer deaktiviert die Hinweise")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, escalation_alert_channel_id=channel.id if channel else None)
+        await interaction.response.send_message(f"Wiederholungsfall-Hinweise: {channel.mention if channel else 'aus'}.", ephemeral=True)
+
+    @escalation.command(name="alert-threshold", description="Ab welcher Fallanzahl Staff informiert wird")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_alert_threshold(self, interaction: discord.Interaction, count: app_commands.Range[int, 2, 20]) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, escalation_alert_threshold=count)
+        await interaction.response.send_message(f"Staff-Hinweis ab **{count} dokumentierten Fällen** innerhalb des Eskalationszeitraums.", ephemeral=True)
+
+    @escalation.command(name="alert-role", description="Eine Rolle bei Staff-Hinweisen erwähnen oder ausnehmen")
+    @app_commands.describe(role="Staff-Rolle", enabled="Soll diese Rolle erwähnt werden?")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_alert_role(self, interaction: discord.Interaction, role: discord.Role, enabled: bool) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        role_ids = set(settings.get("escalation_alert_role_ids", []))
+        if enabled:
+            role_ids.add(role.id)
+        else:
+            role_ids.discard(role.id)
+        await self.bot.store.update_settings(interaction.guild_id, escalation_alert_role_ids=sorted(role_ids))
+        await interaction.response.send_message(f"Rolle {role.mention} wird bei Staff-Hinweisen {'erwähnt' if enabled else 'nicht mehr erwähnt'}.", ephemeral=True)
+
+    @escalation.command(name="show", description="Eskalations- und Staff-Hinweisregeln anzeigen")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_show(self, interaction: discord.Interaction) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        levels = settings.get("escalation_levels", [])
+        level_text = "\n".join(
+            f"Ab #{level['threshold']}: {level['action']}" + (f" ({level.get('duration_minutes', 30)} Min.)" if level['action'] == "timeout" else "")
+            for level in levels
+        ) or "Keine Eskalationsstufen gesetzt"
+        channel_id = settings.get("escalation_alert_channel_id")
+        roles = settings.get("escalation_alert_role_ids", [])
+        await interaction.response.send_message(
+            f"**Automatische Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}\n"
+            f"**Zeitraum:** {settings.get('escalation_window_days', 30)} Tage\n"
+            f"**Stufen:**\n{level_text}\n"
+            f"**Staff-Hinweise:** {f'<#{channel_id}>' if channel_id else 'aus'} ab {settings.get('escalation_alert_threshold', 3)} Fällen\n"
+            f"**Erwähnte Staff-Rollen:** {', '.join(f'<@&{role_id}>' for role_id in roles) or 'keine'}",
+            ephemeral=True,
+        )
+
     @config.command(name="welcome-channel", description="Begrüßungskanal setzen oder leeren")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome_channel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
@@ -196,7 +299,7 @@ class Configuration(commands.Cog):
         welcome = f"<#{settings['welcome_channel_id']}>" if settings["welcome_channel_id"] else "nicht gesetzt"
         overrides = settings.get("log_channels", {})
         routes = ", ".join(f"{key}: <#{value}>" for key, value in overrides.items() if value) or "keine (Standardkanal wird verwendet)"
-        await interaction.response.send_message(f"**Aktive Module:** {enabled}\n**Deaktivierte Einzelbefehle:** {disabled}\n**Standard-Logkanal:** {log}\n**Kategorie-Logrouten:** {routes}\n**Welcome-Kanal:** {welcome}", ephemeral=True)
+        await interaction.response.send_message(f"**Aktive Module:** {enabled}\n**Deaktivierte Einzelbefehle:** {disabled}\n**Standard-Logkanal:** {log}\n**Kategorie-Logrouten:** {routes}\n**Welcome-Kanal:** {welcome}\n**Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

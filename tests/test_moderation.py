@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -14,6 +15,24 @@ from community_bot.storage import Store
 
 
 class FakeStore:
+    def __init__(self):
+        self.settings = {
+            "escalation_window_days": 30,
+            "escalation_alert_threshold": 3,
+            "escalation_alert_channel_id": None,
+            "escalation_alert_role_ids": [],
+        }
+        self.previous_count = 0
+
+    async def get_settings(self, guild_id):
+        return self.settings
+
+    async def recent_violation_count(self, guild_id, target_id, since):
+        return self.previous_count
+
+    async def recent_violation_cases(self, guild_id, target_id, since, limit=5):
+        return []
+
     async def add_case(self, guild_id, target_id, moderator_id, action, reason):
         self.saved = (guild_id, target_id, moderator_id, action, reason)
         return 42
@@ -50,6 +69,23 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         params = {parameter.name: parameter for parameter in purge.parameters}
         self.assertIn("reason", params)
         self.assertFalse(params["reason"].required)
+
+    def test_escalation_policy_matches_kulturistan_defaults(self):
+        disabled = {"escalation_enabled": False}
+        self.assertEqual(Moderation.escalation_for_count(disabled, 1), ("Verwarnung", None))
+
+        enabled = {
+            "escalation_enabled": True,
+            "escalation_levels": [
+                {"threshold": 2, "action": "timeout", "duration_minutes": 30},
+                {"threshold": 3, "action": "timeout", "duration_minutes": 4320},
+                {"threshold": 5, "action": "ban"},
+            ],
+        }
+        self.assertEqual(Moderation.escalation_for_count(enabled, 1), ("Verwarnung", None))
+        self.assertEqual(Moderation.escalation_for_count(enabled, 2), ("Timeout (30 Minuten)", 30))
+        self.assertEqual(Moderation.escalation_for_count(enabled, 3), ("Timeout (4320 Minuten)", 4320))
+        self.assertEqual(Moderation.escalation_for_count(enabled, 5), ("Ban", None))
 
     async def test_case_sends_member_a_dm_and_logs_moderator_reason_and_delivery(self):
         case_id, dm_sent = await self.cog.record(self.interaction, self.member, "Ban", "Regelverstoß")
@@ -113,6 +149,19 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
             await store.set_case_dm_delivery(rows[0]["id"], False)
             rows = await store.recent_cases(20, 30)
             self.assertEqual(rows[0]["dm_delivered"], 0)
+            await store.close()
+
+    async def test_escalation_counts_recent_violations_but_not_unbans(self):
+        with TemporaryDirectory() as directory:
+            store = Store(str(Path(directory) / "cases.sqlite3"))
+            await store.open()
+            await store.add_case(20, 30, 10, "Verwarnung", "first")
+            await store.add_case(20, 30, 10, "Timeout (30 Minuten)", "second")
+            await store.add_case(20, 30, 10, "Entbannung", "appeal accepted")
+            since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+
+            self.assertEqual(await store.recent_violation_count(20, 30, since), 2)
+            self.assertEqual(len(await store.recent_violation_cases(20, 30, since)), 2)
             await store.close()
 
 

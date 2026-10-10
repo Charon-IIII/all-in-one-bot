@@ -18,6 +18,15 @@ DEFAULTS: dict[str, Any] = {
     "automod_repeats": True,
     "automod_timeout_seconds": 300,
     "automod_flagged_words": [],
+    "escalation_enabled": False,
+    "escalation_window_days": 30,
+    "escalation_levels": [
+        {"threshold": 2, "action": "timeout", "duration_minutes": 30},
+        {"threshold": 3, "action": "timeout", "duration_minutes": 4320},
+    ],
+    "escalation_alert_channel_id": None,
+    "escalation_alert_threshold": 3,
+    "escalation_alert_role_ids": [],
 }
 
 
@@ -104,6 +113,26 @@ class Store:
         async with self.db.execute(
             "SELECT * FROM mod_cases WHERE guild_id=? AND target_id=? ORDER BY id DESC LIMIT ?",
             (guild_id, target_id, limit),
+        ) as cur:
+            return await cur.fetchall()
+
+    async def recent_violation_count(self, guild_id: int, target_id: int, since: str) -> int:
+        """Count moderation cases that represent violations, excluding unbans."""
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT COUNT(*) FROM mod_cases WHERE guild_id=? AND target_id=? AND created_at>=? "
+            "AND action NOT LIKE 'Entbannung%'",
+            (guild_id, target_id, since),
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row[0])
+
+    async def recent_violation_cases(self, guild_id: int, target_id: int, since: str, limit: int = 5) -> list[aiosqlite.Row]:
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT * FROM mod_cases WHERE guild_id=? AND target_id=? AND created_at>=? "
+            "AND action NOT LIKE 'Entbannung%' ORDER BY id DESC LIMIT ?",
+            (guild_id, target_id, since, limit),
         ) as cur:
             return await cur.fetchall()
 
