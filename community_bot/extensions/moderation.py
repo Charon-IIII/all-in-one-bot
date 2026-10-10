@@ -144,10 +144,13 @@ class Moderation(commands.Cog):
     @mod.command(name="purge", description="Letzte Nachrichten im Kanal löschen")
     @module_enabled("moderation", "mod-purge")
     @app_commands.checks.has_permissions(manage_messages=True)
-    async def purge(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], reason: app_commands.Range[str, 1, 500]) -> None:
-        reason = await self.clean_reason(interaction, reason)
-        if reason is None:
-            return
+    async def purge(
+        self,
+        interaction: discord.Interaction,
+        amount: app_commands.Range[int, 1, 100],
+        reason: app_commands.Range[str, 1, 500] | None = None,
+    ) -> None:
+        reason = reason.strip() if reason and reason.strip() else "Kein Grund angegeben"
         if not isinstance(interaction.channel, discord.TextChannel):
             await interaction.response.send_message("Dieser Befehl funktioniert nur in Textkanälen.", ephemeral=True)
             return

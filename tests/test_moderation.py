@@ -37,13 +37,19 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         self.member = SimpleNamespace(id=30, send=AsyncMock())
 
     def test_all_moderation_actions_require_a_reason(self):
-        action_names = {"warn", "timeout", "kick", "ban", "unban", "purge"}
+        action_names = {"warn", "timeout", "kick", "ban", "unban"}
         commands = {command.name: command for command in Moderation.mod.commands}
         for name in action_names:
             with self.subTest(command=name):
                 params = {parameter.name: parameter for parameter in commands[name].parameters}
                 self.assertIn("reason", params)
                 self.assertTrue(params["reason"].required)
+
+    def test_purge_reason_is_optional(self):
+        purge = next(command for command in Moderation.mod.commands if command.name == "purge")
+        params = {parameter.name: parameter for parameter in purge.parameters}
+        self.assertIn("reason", params)
+        self.assertFalse(params["reason"].required)
 
     async def test_case_sends_member_a_dm_and_logs_moderator_reason_and_delivery(self):
         case_id, dm_sent = await self.cog.record(self.interaction, self.member, "Ban", "Regelverstoß")
