@@ -4,7 +4,7 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 
 ## Included modules
 
-- **Moderation:** warn, timeout, kick, ban, unban, and purge slash commands, with persistent cases.
+- **Moderation:** warn, timeout, kick, ban, unban, and purge slash commands. Every action requires a non-empty reason; member cases persist the moderator, reason, timestamp, and DM delivery status. Affected users receive an action/moderator/reason/case-number DM when their privacy settings allow it.
 - **Logging:** message edits/deletions, member joins/leaves, and moderation cases to a configurable channel.
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts.

@@ -43,11 +43,16 @@ class Store:
                 moderator_id INTEGER NOT NULL,
                 action TEXT NOT NULL,
                 reason TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                dm_delivered INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_cases_guild_target ON mod_cases(guild_id, target_id, id DESC);
             """
         )
+        async with self.db.execute("PRAGMA table_info(mod_cases)") as cur:
+            case_columns = {row["name"] for row in await cur.fetchall()}
+        if "dm_delivered" not in case_columns:
+            await self.db.execute("ALTER TABLE mod_cases ADD COLUMN dm_delivered INTEGER")
         await self.db.commit()
 
     async def close(self) -> None:
@@ -92,3 +97,8 @@ class Store:
             (guild_id, target_id, limit),
         ) as cur:
             return await cur.fetchall()
+
+    async def set_case_dm_delivery(self, case_id: int, delivered: bool) -> None:
+        assert self.db is not None
+        await self.db.execute("UPDATE mod_cases SET dm_delivered=? WHERE id=?", (int(delivered), case_id))
+        await self.db.commit()

@@ -108,10 +108,19 @@ class EventLogs(commands.Cog):
         await self.post(guild, discord.Embed(title="Entbannung erkannt", description=f"{user} · `{user.id}`", color=discord.Color.green()))
 
     @commands.Cog.listener()
-    async def on_mod_case(self, guild, target, moderator, action: str, reason: str, case_id: int) -> None:
+    async def on_mod_case(self, guild, target, moderator, action: str, reason: str, case_id: int, dm_sent: bool) -> None:
         embed = discord.Embed(title=f"Moderationsfall #{case_id}: {action}", color=discord.Color.orange())
         embed.add_field(name="Mitglied", value=f"{target} (`{target.id}`)", inline=False)
         embed.add_field(name="Moderator", value=f"{moderator.mention} (`{moderator.id}`)", inline=False)
+        embed.add_field(name="Grund", value=reason[:1000], inline=False)
+        embed.add_field(name="DM-Benachrichtigung", value="Zugestellt" if dm_sent else "Nicht zugestellt", inline=False)
+        await self.post(guild, embed)
+
+    @commands.Cog.listener()
+    async def on_mod_action(self, guild, moderator, action: str, reason: str, details: str) -> None:
+        embed = discord.Embed(title=f"Moderationsaktion: {action}", color=discord.Color.orange())
+        embed.add_field(name="Moderator", value=f"{moderator.mention} (`{moderator.id}`)", inline=False)
+        embed.add_field(name="Details", value=details[:1000], inline=False)
         embed.add_field(name="Grund", value=reason[:1000], inline=False)
         await self.post(guild, embed)
 
