@@ -8,14 +8,16 @@ import aiosqlite
 
 
 DEFAULTS: dict[str, Any] = {
-    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "translator": False},
+    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False},
     "commands": {},
     "log_channel_id": None,
+    "log_channels": {},
     "welcome_channel_id": None,
     "welcome_message": "Willkommen {mention} auf **{server}**! Du bist Mitglied Nummer {count}.",
     "automod_invites": True,
     "automod_repeats": True,
     "automod_timeout_seconds": 300,
+    "automod_flagged_words": [],
 }
 
 
@@ -65,13 +67,20 @@ class Store:
         async with self.db.execute("SELECT settings_json FROM guild_settings WHERE guild_id=?", (guild_id,)) as cur:
             row = await cur.fetchone()
         saved = json.loads(row[0]) if row else {}
-        return {**DEFAULTS, **saved, "modules": {**DEFAULTS["modules"], **saved.get("modules", {})}}
+        return {
+            **DEFAULTS,
+            **saved,
+            "modules": {**DEFAULTS["modules"], **saved.get("modules", {})},
+            "log_channels": {**DEFAULTS["log_channels"], **saved.get("log_channels", {})},
+        }
 
     async def update_settings(self, guild_id: int, **changes: Any) -> dict[str, Any]:
         assert self.db is not None
         current = await self.get_settings(guild_id)
         if "modules" in changes:
             current["modules"] = {**current["modules"], **changes.pop("modules")}
+        if "log_channels" in changes:
+            current["log_channels"] = {**current["log_channels"], **changes.pop("log_channels")}
         current.update(changes)
         await self.db.execute(
             "INSERT INTO guild_settings(guild_id, settings_json, updated_at) VALUES(?,?,?) "

@@ -23,6 +23,7 @@ class CommunityBot(commands.Bot):
     def __init__(self, settings) -> None:
         intents = discord.Intents.default()
         intents.members = True
+        intents.auto_moderation_execution = True
         intents.message_content = settings.message_content_intent
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self.settings = settings

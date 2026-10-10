@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+import logging
 from collections import defaultdict, deque
 from datetime import timedelta
 
@@ -10,12 +11,79 @@ from discord.ext import commands
 
 
 INVITE_RE = re.compile(r"(?:https?://)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com/invite)/[\w-]+", re.IGNORECASE)
+PRESET_RULE_NAME = "Community Bot - Commonly Flagged Words"
+CUSTOM_RULE_NAME = "Community Bot - Custom Flagged Words"
 
 
 class AutoMod(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.recent: dict[tuple[int, int], deque[tuple[float, str]]] = defaultdict(deque)
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        for guild in self.bot.guilds:
+            try:
+                await self.sync_guild(guild)
+            except (discord.Forbidden, discord.HTTPException):
+                logging.exception("AutoMod-Regeln konnten für Guild %s nicht synchronisiert werden", guild.id)
+
+    async def sync_guild(self, guild: discord.Guild) -> bool:
+        """Keep Discord's server-side filters aligned with this guild's settings."""
+        settings = await self.bot.store.get_settings(guild.id)
+        enabled = bool(settings["modules"].get("flagged_words"))
+        terms = list(dict.fromkeys(term.strip().casefold() for term in settings.get("automod_flagged_words", []) if term.strip()))
+        if not guild.me or not guild.me.guild_permissions.manage_guild:
+            if enabled:
+                logging.warning("Flagged-Words ist für Guild %s aktiviert, aber dem Bot fehlt Manage Server", guild.id)
+            return False
+        rules = {rule.name: rule for rule in await guild.fetch_automod_rules()}
+        block_action = discord.AutoModRuleAction(
+            type=discord.AutoModRuleActionType.block_message,
+            custom_message="Deine Nachricht enthält einen nicht erlaubten Begriff.",
+        )
+
+        async def ensure_rule(name: str, trigger: discord.AutoModTrigger | None, should_enable: bool) -> None:
+            existing = rules.get(name)
+            if existing is None:
+                if not should_enable or trigger is None:
+                    return
+                await guild.create_automod_rule(
+                    name=name,
+                    event_type=discord.AutoModRuleEventType.message_send,
+                    trigger=trigger,
+                    actions=[block_action],
+                    enabled=True,
+                    reason="Synchronisiert durch Community Bot",
+                )
+                return
+            if not should_enable:
+                if existing.enabled:
+                    await existing.edit(enabled=False, reason="Community Bot Wortfilter deaktiviert")
+                return
+            if trigger is not None:
+                if existing.enabled and existing.trigger.to_dict() == trigger.to_dict() and [action.to_dict() for action in existing.actions] == [block_action.to_dict()]:
+                    return
+                await existing.edit(
+                    trigger=trigger,
+                    actions=[block_action],
+                    enabled=True,
+                    reason="Community Bot Wortfilter synchronisiert",
+                )
+            elif existing.enabled:
+                await existing.edit(enabled=False, reason="Community Bot Wortliste ist leer")
+
+        preset_trigger = discord.AutoModTrigger(
+            type=discord.AutoModRuleTriggerType.keyword_preset,
+            presets=discord.AutoModPresets(profanity=True),
+        )
+        custom_trigger = discord.AutoModTrigger(
+            type=discord.AutoModRuleTriggerType.keyword,
+            keyword_filter=terms,
+        ) if terms else None
+        await ensure_rule(PRESET_RULE_NAME, preset_trigger, enabled)
+        await ensure_rule(CUSTOM_RULE_NAME, custom_trigger, enabled and bool(terms))
+        return True
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:

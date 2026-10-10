@@ -5,9 +5,9 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 ## Included modules
 
 - **Moderation:** warn, timeout, kick, ban, and unban slash commands require a non-empty reason; purge accepts an optional reason. Member cases persist the moderator, reason, timestamp, and DM delivery status. Affected users receive an action/moderator/reason/case-number DM when their privacy settings allow it.
-- **Logging:** message edits/deletions, member joins/leaves, and moderation cases to a configurable channel.
+- **Logging:** message edits/deletions, member joins/leaves, moderation cases, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
 - **Welcome:** optional welcome channel and customizable message.
-- **Automod:** configurable invite-link and repeated-message filters with escalating timeouts.
+- **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
 - **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`.
 - **Translator integration point:** ready for the existing DeepL bot to be brought in as an optional extension.
 
@@ -32,7 +32,9 @@ Copy-Item .env.example .env
 python -m community_bot
 ```
 
-Invite the bot with the `bot` and `applications.commands` scopes and the permissions above. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`. Use `/config command` to toggle individual moderation commands such as `mod-purge`.
+Invite the bot with the `bot` and `applications.commands` scopes and the permissions above, including Manage Server for native AutoMod rules. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`. Use `/config command` to toggle individual moderation commands such as `mod-purge`.
+
+Set the default logging destination with `/config log-channel`, then optionally route a category with `/config log-route` (categories: `messages`, `members`, `channels`, `roles`, `voice`, `moderation`, `automod`). Passing no channel to a route resets it to the default channel. Enable `flagged-words` in `/config module`, or use `/config flagged-words enabled`; manage the custom list with `/config flagged-words add`, `remove`, and `list`. The native preset and custom list require Discord AutoMod rule permissions; Discord's preset requires Community features on the server. Discord displays its own block feedback to the member, and the bot logs the matched rule in the `automod` category.
 
 ## Deploy on Oracle Cloud Infrastructure Always Free
 
