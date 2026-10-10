@@ -16,6 +16,7 @@ EXTENSIONS = (
     "community_bot.extensions.logging_events",
     "community_bot.extensions.welcome",
     "community_bot.extensions.automod",
+    "community_bot.extensions.nickname_filter",
     "community_bot.extensions.translator",
     "community_bot.extensions.reputation",
     "community_bot.extensions.help",

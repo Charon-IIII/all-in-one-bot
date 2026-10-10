@@ -9,7 +9,7 @@ import aiosqlite
 
 
 DEFAULTS: dict[str, Any] = {
-    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False, "reputation": True},
+    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "flagged_words": False, "nickname_filter": False, "translator": False, "reputation": True},
     "commands": {},
     "log_channel_id": None,
     "log_channels": {},
@@ -19,6 +19,8 @@ DEFAULTS: dict[str, Any] = {
     "automod_repeats": True,
     "automod_timeout_seconds": 300,
     "automod_flagged_words": [],
+    "nickname_filter_terms": [],
+    "nickname_filter_replacement": "🚫 Nice try!",
     "mute_role_id": None,
     "escalation_enabled": False,
     "escalation_window_days": 30,
