@@ -6,7 +6,7 @@ from discord.ext import commands
 
 
 MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "translator"]
-COMMANDS = ["mod-warn", "mod-timeout", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
+COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
 ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
 
@@ -256,6 +256,23 @@ class Configuration(commands.Cog):
         await self.bot.store.update_settings(interaction.guild_id, escalation_alert_role_ids=sorted(role_ids))
         await interaction.response.send_message(f"Rolle {role.mention} wird bei Staff-Hinweisen {'erwähnt' if enabled else 'nicht mehr erwähnt'}.", ephemeral=True)
 
+    @escalation.command(name="mute-role", description="Servereigene Rolle für zeitbegrenzte Mutes setzen oder leeren")
+    @app_commands.describe(role="Zuweisbare Mute-Rolle; leer stellt Discord-Timeouts wieder her")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def escalation_mute_role(self, interaction: discord.Interaction, role: discord.Role | None = None) -> None:
+        if role and (role.is_default() or role.managed or not role.is_assignable()):
+            await interaction.response.send_message(
+                "Diese Rolle ist nicht zuweisbar. Prüft, dass sie keine Integrationsrolle und niedriger als die Bot-Rolle ist und der Bot Manage Roles hat.",
+                ephemeral=True,
+            )
+            return
+        await self.bot.store.update_settings(interaction.guild_id, mute_role_id=role.id if role else None)
+        if role:
+            message = f"{role.mention} ist jetzt die Mute-Rolle für `/mod timeout` und Timeout-Eskalationen. Sie muss Nachrichten-/Sprachrechte passend sperren."
+        else:
+            message = "Mute-Rolle entfernt. `/mod timeout` und Timeout-Eskalationen verwenden wieder Discord-Timeouts. Bereits laufende Rollen-Mutes laufen mit ihrer gespeicherten Rolle aus."
+        await interaction.response.send_message(message, ephemeral=True)
+
     @escalation.command(name="show", description="Eskalations- und Staff-Hinweisregeln anzeigen")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_show(self, interaction: discord.Interaction) -> None:
@@ -267,12 +284,14 @@ class Configuration(commands.Cog):
         ) or "Keine Eskalationsstufen gesetzt"
         channel_id = settings.get("escalation_alert_channel_id")
         roles = settings.get("escalation_alert_role_ids", [])
+        mute_role_id = settings.get("mute_role_id")
         await interaction.response.send_message(
             f"**Automatische Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}\n"
             f"**Zeitraum:** {settings.get('escalation_window_days', 30)} Tage\n"
             f"**Stufen:**\n{level_text}\n"
             f"**Staff-Hinweise:** {f'<#{channel_id}>' if channel_id else 'aus'} ab {settings.get('escalation_alert_threshold', 3)} Fällen\n"
-            f"**Erwähnte Staff-Rollen:** {', '.join(f'<@&{role_id}>' for role_id in roles) or 'keine'}",
+            f"**Erwähnte Staff-Rollen:** {', '.join(f'<@&{role_id}>' for role_id in roles) or 'keine'}\n"
+            f"**Mute-Rolle:** {f'<@&{mute_role_id}>' if mute_role_id else 'Discord-Timeout'}",
             ephemeral=True,
         )
 
@@ -300,9 +319,10 @@ class Configuration(commands.Cog):
         disabled = ", ".join(name for name, active in settings["commands"].items() if not active) or "keine"
         log = f"<#{settings['log_channel_id']}>" if settings["log_channel_id"] else "nicht gesetzt"
         welcome = f"<#{settings['welcome_channel_id']}>" if settings["welcome_channel_id"] else "nicht gesetzt"
+        mute_role = f"<@&{settings['mute_role_id']}>" if settings.get("mute_role_id") else "Discord-Timeout"
         overrides = settings.get("log_channels", {})
         routes = ", ".join(f"{key}: <#{value}>" for key, value in overrides.items() if value) or "keine (Standardkanal wird verwendet)"
-        await interaction.response.send_message(f"**Aktive Module:** {enabled}\n**Deaktivierte Einzelbefehle:** {disabled}\n**Standard-Logkanal:** {log}\n**Kategorie-Logrouten:** {routes}\n**Welcome-Kanal:** {welcome}\n**Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}", ephemeral=True)
+        await interaction.response.send_message(f"**Aktive Module:** {enabled}\n**Deaktivierte Einzelbefehle:** {disabled}\n**Standard-Logkanal:** {log}\n**Kategorie-Logrouten:** {routes}\n**Welcome-Kanal:** {welcome}\n**Mute-Rolle:** {mute_role}\n**Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

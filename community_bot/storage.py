@@ -18,6 +18,7 @@ DEFAULTS: dict[str, Any] = {
     "automod_repeats": True,
     "automod_timeout_seconds": 300,
     "automod_flagged_words": [],
+    "mute_role_id": None,
     "escalation_enabled": False,
     "escalation_window_days": 30,
     "escalation_levels": [
@@ -58,6 +59,16 @@ class Store:
                 dm_delivered INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_cases_guild_target ON mod_cases(guild_id, target_id, id DESC);
+            CREATE TABLE IF NOT EXISTS active_role_mutes (
+                guild_id INTEGER NOT NULL,
+                target_id INTEGER NOT NULL,
+                role_id INTEGER NOT NULL,
+                expires_at TEXT NOT NULL,
+                moderator_id INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                PRIMARY KEY(guild_id, target_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_role_mutes_expiry ON active_role_mutes(expires_at);
             """
         )
         async with self.db.execute("PRAGMA table_info(mod_cases)") as cur:
@@ -121,7 +132,7 @@ class Store:
         assert self.db is not None
         async with self.db.execute(
             "SELECT COUNT(*) FROM mod_cases WHERE guild_id=? AND target_id=? AND created_at>=? "
-            "AND action NOT LIKE 'Entbannung%'",
+            "AND action NOT LIKE 'Entbannung%' AND action NOT LIKE 'Entmuten%'",
             (guild_id, target_id, since),
         ) as cur:
             row = await cur.fetchone()
@@ -131,10 +142,39 @@ class Store:
         assert self.db is not None
         async with self.db.execute(
             "SELECT * FROM mod_cases WHERE guild_id=? AND target_id=? AND created_at>=? "
-            "AND action NOT LIKE 'Entbannung%' ORDER BY id DESC LIMIT ?",
+            "AND action NOT LIKE 'Entbannung%' AND action NOT LIKE 'Entmuten%' ORDER BY id DESC LIMIT ?",
             (guild_id, target_id, since, limit),
         ) as cur:
             return await cur.fetchall()
+
+    async def set_active_role_mute(
+        self, guild_id: int, target_id: int, role_id: int, expires_at: str, moderator_id: int, reason: str
+    ) -> None:
+        assert self.db is not None
+        await self.db.execute(
+            "INSERT INTO active_role_mutes(guild_id,target_id,role_id,expires_at,moderator_id,reason) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(guild_id,target_id) DO UPDATE SET role_id=excluded.role_id, expires_at=excluded.expires_at, "
+            "moderator_id=excluded.moderator_id, reason=excluded.reason",
+            (guild_id, target_id, role_id, expires_at, moderator_id, reason),
+        )
+        await self.db.commit()
+
+    async def get_active_role_mute(self, guild_id: int, target_id: int) -> aiosqlite.Row | None:
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT * FROM active_role_mutes WHERE guild_id=? AND target_id=?", (guild_id, target_id)
+        ) as cur:
+            return await cur.fetchone()
+
+    async def expired_role_mutes(self, now: str) -> list[aiosqlite.Row]:
+        assert self.db is not None
+        async with self.db.execute("SELECT * FROM active_role_mutes WHERE expires_at<=?", (now,)) as cur:
+            return await cur.fetchall()
+
+    async def delete_active_role_mute(self, guild_id: int, target_id: int) -> None:
+        assert self.db is not None
+        await self.db.execute("DELETE FROM active_role_mutes WHERE guild_id=? AND target_id=?", (guild_id, target_id))
+        await self.db.commit()
 
     async def set_case_dm_delivery(self, case_id: int, delivered: bool) -> None:
         assert self.db is not None

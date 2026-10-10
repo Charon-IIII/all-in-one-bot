@@ -56,7 +56,7 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         self.member = SimpleNamespace(id=30, send=AsyncMock())
 
     def test_all_moderation_actions_require_a_reason(self):
-        action_names = {"warn", "timeout", "kick", "ban", "unban"}
+        action_names = {"warn", "timeout", "unmute", "kick", "ban", "unban"}
         commands = {command.name: command for command in Moderation.mod.commands}
         for name in action_names:
             with self.subTest(command=name):
@@ -162,6 +162,24 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(await store.recent_violation_count(20, 30, since), 2)
             self.assertEqual(len(await store.recent_violation_cases(20, 30, since)), 2)
+            await store.close()
+
+    async def test_role_mute_is_persisted_and_expires_after_restart_window(self):
+        with TemporaryDirectory() as directory:
+            store = Store(str(Path(directory) / "role-mutes.sqlite3"))
+            await store.open()
+            now = datetime.now(timezone.utc)
+            expiry = (now + timedelta(minutes=30)).isoformat()
+            await store.set_active_role_mute(20, 30, 40, expiry, 10, "Repeated rule violation")
+
+            active = await store.get_active_role_mute(20, 30)
+            self.assertEqual(active["role_id"], 40)
+            self.assertEqual(active["reason"], "Repeated rule violation")
+            self.assertEqual(await store.expired_role_mutes(now.isoformat()), [])
+            self.assertEqual(len(await store.expired_role_mutes((now + timedelta(minutes=31)).isoformat())), 1)
+
+            await store.delete_active_role_mute(20, 30)
+            self.assertIsNone(await store.get_active_role_mute(20, 30))
             await store.close()
 
 
