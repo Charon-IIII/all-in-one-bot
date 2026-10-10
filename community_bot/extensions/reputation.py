@@ -87,12 +87,6 @@ class Reputation(commands.Cog):
         score = await self.bot.store.change_reputation(
             interaction.guild_id, interaction.user.id, member.id, -amount, "take"
         )
-        if score is None:
-            current = await self.bot.store.reputation_score(interaction.guild_id, member.id)
-            await interaction.response.send_message(
-                f"{member.mention} only has **{current} reputation**. Scores cannot go below zero.", ephemeral=True
-            )
-            return
         await interaction.response.send_message(
             f"Took **{amount} reputation** from {member.mention}. Their score is now **{score}**.",
             ephemeral=True,

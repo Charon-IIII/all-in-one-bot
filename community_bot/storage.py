@@ -79,7 +79,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS reputation_scores (
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
-                score INTEGER NOT NULL DEFAULT 0 CHECK(score >= 0),
+                score INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(guild_id, user_id)
             );
             CREATE TABLE IF NOT EXISTS reputation_events (
@@ -101,6 +101,31 @@ class Store:
                 ON reputation_scores(guild_id, score DESC, user_id ASC);
             """
         )
+        async with self.db.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='reputation_scores'"
+        ) as cur:
+            reputation_schema = await cur.fetchone()
+        if reputation_schema and "CHECK(SCORE>=0)" in "".join(str(reputation_schema[0]).upper().split()):
+            # Older versions prohibited negative scores. Rebuild the table while
+            # preserving existing scores so upgrades do not require a DB reset.
+            await self.db.execute("BEGIN IMMEDIATE")
+            await self.db.execute("DROP INDEX IF EXISTS idx_rep_leaderboard")
+            await self.db.execute("ALTER TABLE reputation_scores RENAME TO reputation_scores_legacy")
+            await self.db.execute(
+                "CREATE TABLE reputation_scores ("
+                "guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, score INTEGER NOT NULL DEFAULT 0, "
+                "PRIMARY KEY(guild_id, user_id))"
+            )
+            await self.db.execute(
+                "INSERT INTO reputation_scores(guild_id,user_id,score) "
+                "SELECT guild_id,user_id,score FROM reputation_scores_legacy"
+            )
+            await self.db.execute("DROP TABLE reputation_scores_legacy")
+            await self.db.execute(
+                "CREATE INDEX idx_rep_leaderboard "
+                "ON reputation_scores(guild_id, score DESC, user_id ASC)"
+            )
+            await self.db.commit()
         async with self.db.execute("PRAGMA table_info(mod_cases)") as cur:
             case_columns = {row["name"] for row in await cur.fetchall()}
         if "dm_delivered" not in case_columns:
@@ -231,15 +256,6 @@ class Store:
         assert self.db is not None
         async with self._write_lock:
             await self.db.execute("BEGIN IMMEDIATE")
-            if amount < 0:
-                async with self.db.execute(
-                    "SELECT score FROM reputation_scores WHERE guild_id=? AND user_id=?",
-                    (guild_id, recipient_id),
-                ) as cur:
-                    current = await cur.fetchone()
-                if current is None or int(current[0]) < abs(amount):
-                    await self.db.rollback()
-                    return None
             cur = await self.db.execute(
                 "INSERT OR IGNORE INTO reputation_events "
                 "(guild_id,giver_id,recipient_id,amount,event_type,source_message_id,auto_day,created_at) "
@@ -291,7 +307,7 @@ class Store:
                 (guild_id, user_id),
             ) as cur:
                 row = await cur.fetchone()
-            if row is None or int(row[0]) == 0:
+            if row is None:
                 return None
             return int(row[1]) + 1
 
@@ -299,7 +315,7 @@ class Store:
         assert self.db is not None
         async with self._write_lock:
             async with self.db.execute(
-                "SELECT user_id, score FROM reputation_scores WHERE guild_id=? AND score>0 "
+                "SELECT user_id, score FROM reputation_scores WHERE guild_id=? "
                 "ORDER BY score DESC, user_id ASC LIMIT ?",
                 (guild_id, limit),
             ) as cur:

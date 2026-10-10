@@ -41,7 +41,7 @@ class Help(commands.Cog):
             commands_text.extend(
                 (
                     f"`/rep give <member> <amount>` — give up to **{give_max}** reputation per command.",
-                    f"`/rep take <member> <amount>` — take up to **{take_max}** reputation per command; scores cannot go below zero.",
+                    f"`/rep take <member> <amount>` — take up to **{take_max}** reputation per command; scores can go below zero.",
                     "`/rep score [member]` — check your score or another member's score.",
                     "`/rep leaderboard` — show the server's top reputation scores.",
                 )
