@@ -1,0 +1,22 @@
+[Unit]
+Description=Community Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=communitybot
+Group=communitybot
+WorkingDirectory=/opt/community-bot
+EnvironmentFile=/opt/community-bot/.env
+ExecStart=/opt/community-bot/.venv/bin/python -m community_bot
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/community-bot/data
+
+[Install]
+WantedBy=multi-user.target
