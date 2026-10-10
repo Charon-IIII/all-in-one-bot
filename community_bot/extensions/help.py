@@ -138,16 +138,6 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
-            name="🪪 Nickname filter · requires Manage Server",
-            value=(
-                "`/config module nickname-filter <enabled>` — turn name screening on or off.\n"
-                "`/config nickname-filter add|remove|list` — manage blocked terms.\n"
-                "`/config nickname-filter replacement <nickname>` — choose the visible replacement.\n"
-                "The bot needs Manage Nicknames; matches are logged to the `automod` log route."
-            ),
-            inline=False,
-        )
-        embed.add_field(
             name="📈 Escalation · requires Manage Server",
             value=(
                 "`/config escalation show|enabled|window` — review and toggle escalation.\n"

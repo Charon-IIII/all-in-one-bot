@@ -4,9 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .nickname_filter import DEFAULT_REPLACEMENT, MAX_NICKNAME_LENGTH, MAX_TERM_LENGTH, MAX_TERMS, normalize_name
-
-MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "nickname-filter", "translator", "reputation"]
+MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "translator", "reputation"]
 COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
 ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
@@ -20,7 +18,6 @@ class Configuration(commands.Cog):
     flagged_words = app_commands.Group(name="flagged-words", description="Configure Discord AutoMod word filters", parent=config)
     escalation = app_commands.Group(name="escalation", description="Configure escalating actions and staff alerts", parent=config)
     reputation = app_commands.Group(name="reputation", description="Configure server reputation", parent=config)
-    nickname_filter = app_commands.Group(name="nickname-filter", description="Configure the nickname and username filter", parent=config)
 
     @config.command(name="setup", description="Enable the default modules for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -41,7 +38,7 @@ class Configuration(commands.Cog):
             "**Quick start**\n"
             "1. `/config setup` enables Moderation and Logging.\n"
             "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
-            "3. Use `/config module` to enable or disable Welcome, AutoMod, Nickname Filter, Translator, or Reputation individually; use `/config nickname-filter` and `/config reputation` for their settings.\n"
+            "3. Use `/config module` to enable or disable Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation, the leaderboard, and optional award roles.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
             "6. `/config show` displays the main settings.",
@@ -61,13 +58,6 @@ class Configuration(commands.Cog):
             note = " Reply to a message with `.tr` for automatic language detection or `.tr <language code>` to specify a source language, such as `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL. If `DEEPL_API_KEY` is missing from `.env`, add it there and restart the bot."
             if enabled and not os.getenv("DEEPL_API_KEY", "").strip():
                 note = " Translator is enabled, but needs `DEEPL_API_KEY` in `.env` and a bot restart."
-        if module_key == "nickname_filter" and enabled:
-            settings = await self.bot.store.get_settings(interaction.guild_id)
-            if not settings.get("nickname_filter_terms"):
-                note += " Add blocked terms with `/config nickname-filter add` before the filter can match names."
-            bot_member = interaction.guild.me
-            if bot_member is None or not bot_member.guild_permissions.manage_nicknames:
-                note += " The bot also needs the **Manage Nicknames** permission to replace flagged server nicknames."
         if module_key in {"automod", "flagged_words"}:
             cog = self.bot.get_cog("AutoMod")
             if cog is not None:
@@ -362,110 +352,12 @@ class Configuration(commands.Cog):
             f"award roles {'enabled' if settings.get('reputation_awards_enabled', False) else 'disabled'}; "
             f"leaderboard {f'<#{rep_channel_id}>' if rep_channel_id else 'not posted'}"
         )
-        nickname_terms = settings.get("nickname_filter_terms", [])
-        nickname_replacement = settings.get("nickname_filter_replacement") or DEFAULT_REPLACEMENT
         await interaction.response.send_message(
             f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n"
             f"**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n"
             f"**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}\n"
-            f"**Nickname filter:** {'enabled' if settings['modules'].get('nickname_filter', False) else 'disabled'}; "
-            f"{len(nickname_terms)} blocked terms; replacement: "
-            f"{discord.utils.escape_mentions(discord.utils.escape_markdown(nickname_replacement))}\n"
             f"**Reputation:** {rep_summary}",
             ephemeral=True,
-        )
-
-    @nickname_filter.command(name="add", description="Add a blocked term for server nicknames and usernames")
-    @app_commands.describe(term="Word or phrase to block (2–80 characters)")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def nickname_filter_add(self, interaction: discord.Interaction, term: str) -> None:
-        term = term.strip()
-        normalized = normalize_name(term)
-        if not term or "\n" in term or "\r" in term or len(term) > MAX_TERM_LENGTH or len(normalized) < 2:
-            await interaction.response.send_message(
-                f"Enter a word or phrase between 2 and {MAX_TERM_LENGTH} characters.", ephemeral=True
-            )
-            return
-        settings = await self.bot.store.get_settings(interaction.guild_id)
-        terms = list(settings.get("nickname_filter_terms", []))
-        if any(normalize_name(existing) == normalized for existing in terms):
-            await interaction.response.send_message("That term is already on the nickname filter list.", ephemeral=True)
-            return
-        replacement = settings.get("nickname_filter_replacement") or DEFAULT_REPLACEMENT
-        if normalized in normalize_name(replacement):
-            await interaction.response.send_message(
-                "That term appears in the current replacement nickname. Change the replacement first, then add this term.",
-                ephemeral=True,
-            )
-            return
-        if len(terms) >= MAX_TERMS:
-            await interaction.response.send_message(f"The nickname filter supports up to {MAX_TERMS} terms.", ephemeral=True)
-            return
-        terms.append(term)
-        await self.bot.store.update_settings(interaction.guild_id, nickname_filter_terms=terms)
-        await interaction.response.send_message(
-            f"Added **{discord.utils.escape_mentions(discord.utils.escape_markdown(term))}** to the nickname filter. Matching ignores capitalization, accents, punctuation, common number substitutions, and common Cyrillic/Greek lookalikes.",
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-
-    @nickname_filter.command(name="remove", description="Remove a blocked nickname term")
-    @app_commands.describe(term="Word or phrase to remove")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def nickname_filter_remove(self, interaction: discord.Interaction, term: str) -> None:
-        settings = await self.bot.store.get_settings(interaction.guild_id)
-        normalized = normalize_name(term.strip())
-        terms = list(settings.get("nickname_filter_terms", []))
-        updated = [existing for existing in terms if normalize_name(existing) != normalized]
-        if len(updated) == len(terms):
-            await interaction.response.send_message("That term is not on the nickname filter list.", ephemeral=True)
-            return
-        await self.bot.store.update_settings(interaction.guild_id, nickname_filter_terms=updated)
-        await interaction.response.send_message(
-            f"Removed **{discord.utils.escape_mentions(discord.utils.escape_markdown(term.strip()))}** from the nickname filter.",
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-
-    @nickname_filter.command(name="list", description="Show the blocked nickname terms and replacement")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def nickname_filter_list(self, interaction: discord.Interaction) -> None:
-        settings = await self.bot.store.get_settings(interaction.guild_id)
-        terms = settings.get("nickname_filter_terms", [])
-        replacement = settings.get("nickname_filter_replacement") or DEFAULT_REPLACEMENT
-        display_terms = [discord.utils.escape_mentions(discord.utils.escape_markdown(term)) for term in terms]
-        description = "\n".join(f"• {term}" for term in display_terms) if display_terms else "No blocked terms are configured."
-        embed = discord.Embed(
-            title="Nickname Filter",
-            description=description[:4000],
-            color=discord.Color.orange(),
-        )
-        embed.add_field(name="Status", value="Enabled" if settings["modules"].get("nickname_filter", False) else "Disabled")
-        embed.add_field(name="Replacement nickname", value=discord.utils.escape_markdown(replacement))
-        await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
-
-    @nickname_filter.command(name="replacement", description="Choose the nickname used when a match is detected")
-    @app_commands.describe(nickname="Replacement server nickname (maximum 32 characters)")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def nickname_filter_replacement(self, interaction: discord.Interaction, nickname: str) -> None:
-        nickname = nickname.strip()
-        if not nickname or "\n" in nickname or "\r" in nickname or len(nickname) > MAX_NICKNAME_LENGTH:
-            await interaction.response.send_message(
-                f"Enter a replacement nickname between 1 and {MAX_NICKNAME_LENGTH} characters.", ephemeral=True
-            )
-            return
-        settings = await self.bot.store.get_settings(interaction.guild_id)
-        normalized = normalize_name(nickname)
-        if any(normalize_name(term) in normalized for term in settings.get("nickname_filter_terms", [])):
-            await interaction.response.send_message(
-                "The replacement nickname cannot contain a blocked term.", ephemeral=True
-            )
-            return
-        await self.bot.store.update_settings(interaction.guild_id, nickname_filter_replacement=nickname)
-        await interaction.response.send_message(
-            f"Flagged names will be changed to **{discord.utils.escape_mentions(discord.utils.escape_markdown(nickname))}**.",
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none(),
         )
 
     @reputation.command(name="max-give", description="Set the maximum reputation members can give per command")
