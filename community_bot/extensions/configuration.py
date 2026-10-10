@@ -74,7 +74,12 @@ class Configuration(commands.Cog):
         if module_key == "reputation":
             cog = self.bot.get_cog("Reputation")
             if cog is not None:
-                if not await cog.sync_award_roles(interaction.guild):
+                settings = await self.bot.store.get_settings(interaction.guild_id)
+                if enabled and not settings.get("reputation_awards_configured", False):
+                    success, message = await cog.configure_award_roles(interaction.guild, True)
+                    if not success:
+                        note += f" Award roles could not be enabled: {message}"
+                elif not await cog.sync_award_roles(interaction.guild):
                     note += " Reputation was updated, but its award roles could not be synchronized; check the bot's Manage Roles permission and role hierarchy."
                 await cog.refresh_leaderboard(interaction.guild)
         await interaction.response.send_message(f"Module **{name.value}** {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)

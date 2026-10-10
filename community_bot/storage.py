@@ -34,7 +34,8 @@ DEFAULTS: dict[str, Any] = {
     "reputation_auto_thanks": True,
     "reputation_leaderboard_channel_id": None,
     "reputation_leaderboard_message_id": None,
-    "reputation_awards_enabled": False,
+    "reputation_awards_enabled": True,
+    "reputation_awards_configured": False,
     "reputation_first_place_role_id": None,
     "reputation_favorites_role_id": None,
 }

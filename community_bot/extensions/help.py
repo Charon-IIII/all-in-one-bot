@@ -152,7 +152,8 @@ class Help(commands.Cog):
             value=(
                 "`/config reputation show|max-give|max-take|auto-thanks` — tune member reputation.\n"
                 "`/config reputation leaderboard-channel` — set or clear the live board.\n"
-                "`/config reputation roles <enabled>` — enable or remove the #1 **Most Loved** and #2–#3 **Community Favorite** roles; needs Manage Roles."
+                "Award roles are created and assigned automatically by default: #1 **Most Loved**, #2–#3 **Community Favorite**.\n"
+                "`/config reputation roles <enabled>` — turn automatic awards off or back on; needs Manage Roles."
             ),
             inline=False,
         )

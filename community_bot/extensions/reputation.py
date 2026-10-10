@@ -158,11 +158,33 @@ class Reputation(commands.Cog):
                     logging.getLogger(__name__).warning(
                         "Could not load the member list for reputation role sync in guild %s", guild.id
                     )
+            settings = await self.bot.store.get_settings(guild.id)
+            if settings["modules"].get("reputation", True) and not settings.get("reputation_awards_configured", False):
+                # Migrate existing servers to the requested default: automatic award roles.
+                await self.bot.store.update_settings(
+                    guild.id,
+                    reputation_awards_enabled=True,
+                    reputation_awards_configured=True,
+                )
             await self.refresh_leaderboard(guild)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member) -> None:
+        self.queue_leaderboard_refresh(member.guild.id)
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:
         self.queue_leaderboard_refresh(member.guild.id)
+
+    @commands.Cog.listener()
+    async def on_guild_role_delete(self, role: discord.Role) -> None:
+        settings = await self.bot.store.get_settings(role.guild.id)
+        award_role_ids = {
+            settings.get("reputation_first_place_role_id"),
+            settings.get("reputation_favorites_role_id"),
+        }
+        if role.id in award_role_ids and settings.get("reputation_awards_enabled", True):
+            self.queue_leaderboard_refresh(role.guild.id)
 
     def queue_leaderboard_refresh(self, guild_id: int) -> None:
         task = self._refresh_tasks.get(guild_id)
@@ -234,7 +256,6 @@ class Reputation(commands.Cog):
         return active_rows[:limit] if limit is not None else active_rows
 
     async def configure_award_roles(self, guild: discord.Guild, enabled: bool) -> tuple[bool, str]:
-        settings = await self.bot.store.get_settings(guild.id)
         bot_member = guild.me
         if bot_member is None or not bot_member.guild_permissions.manage_roles:
             return False, "I need the **Manage Roles** permission to manage reputation award roles."
@@ -244,46 +265,67 @@ class Reputation(commands.Cog):
             except (discord.Forbidden, discord.HTTPException):
                 return False, "I could not load the server member list. Enable **Server Members Intent** in the Developer Portal and restart the bot."
 
-        role_ids = {
-            "reputation_first_place_role_id": settings.get("reputation_first_place_role_id"),
-            "reputation_favorites_role_id": settings.get("reputation_favorites_role_id"),
-        }
         if enabled:
-            specifications = (
-                ("reputation_first_place_role_id", "Most Loved", discord.Color.from_rgb(255, 190, 72)),
-                ("reputation_favorites_role_id", "Community Favorite", discord.Color.from_rgb(235, 115, 175)),
-            )
-            try:
-                for key, name, color in specifications:
-                    role = guild.get_role(role_ids[key]) if role_ids[key] else None
-                    if role is None:
-                        role = await guild.create_role(
-                            name=name,
-                            permissions=discord.Permissions.none(),
-                            colour=color,
-                            hoist=True,
-                            mentionable=False,
-                            reason="Create bot-managed reputation leaderboard award role",
-                        )
-                        role_ids[key] = role.id
-                        await self.bot.store.update_settings(guild.id, **{key: role.id})
-                    if not role.is_assignable():
-                        return False, f"I cannot manage the **{role.name}** role. Move my highest role above it."
-            except discord.Forbidden:
-                return False, "I could not create or manage the award roles. Check my **Manage Roles** permission and role hierarchy."
-            except discord.HTTPException:
-                logging.getLogger(__name__).exception("Could not set up reputation roles in guild %s", guild.id)
-                return False, "Discord could not create the award roles just now. Please try again later."
+            success, error = await self._ensure_award_roles(guild)
+            if not success:
+                return False, error
 
-        await self.bot.store.update_settings(guild.id, reputation_awards_enabled=enabled)
+        await self.bot.store.update_settings(
+            guild.id,
+            reputation_awards_enabled=enabled,
+            reputation_awards_configured=True,
+        )
         if not await self.sync_award_roles(guild):
             return False, "The setting was saved, but I could not synchronize the award roles. Check my permissions and role hierarchy."
         if enabled:
             return True, "Reputation awards are enabled: **Most Loved** is reserved for #1, and **Community Favorite** is shared by #2 and #3."
         return True, "Reputation awards are disabled and their roles have been removed from members. The roles remain in the server if you want to enable awards again."
 
+    async def _ensure_award_roles(self, guild: discord.Guild) -> tuple[bool, str]:
+        settings = await self.bot.store.get_settings(guild.id)
+        bot_member = guild.me
+        if bot_member is None or not bot_member.guild_permissions.manage_roles:
+            return False, "I need the **Manage Roles** permission to create and assign reputation award roles."
+
+        role_specs = (
+            ("reputation_first_place_role_id", "Most Loved", discord.Color.from_rgb(255, 190, 72)),
+            ("reputation_favorites_role_id", "Community Favorite", discord.Color.from_rgb(235, 115, 175)),
+        )
+        try:
+            for key, name, color in role_specs:
+                role_id = settings.get(key)
+                role = guild.get_role(role_id) if role_id else None
+                if role is None:
+                    role = await guild.create_role(
+                        name=name,
+                        permissions=discord.Permissions.none(),
+                        colour=color,
+                        hoist=True,
+                        mentionable=False,
+                        reason="Create bot-managed reputation leaderboard award role",
+                    )
+                    await self.bot.store.update_settings(guild.id, **{key: role.id})
+                if not role.is_assignable():
+                    return False, f"I cannot manage the **{role.name}** role. Move my highest role above it."
+        except discord.Forbidden:
+            return False, "I could not create or manage the award roles. Check my **Manage Roles** permission and role hierarchy."
+        except discord.HTTPException:
+            logging.getLogger(__name__).exception("Could not set up reputation roles in guild %s", guild.id)
+            return False, "Discord could not create the award roles just now. Please try again later."
+        return True, ""
+
     async def sync_award_roles(self, guild: discord.Guild) -> bool:
         settings = await self.bot.store.get_settings(guild.id)
+        awards_enabled = settings.get("reputation_awards_enabled", True)
+        module_enabled = settings["modules"].get("reputation", True)
+        if awards_enabled and module_enabled:
+            success, error = await self._ensure_award_roles(guild)
+            if not success:
+                logging.getLogger(__name__).warning(
+                    "Could not provision reputation award roles in guild %s: %s", guild.id, error
+                )
+                return False
+            settings = await self.bot.store.get_settings(guild.id)
         first_role_id = settings.get("reputation_first_place_role_id")
         favorites_role_id = settings.get("reputation_favorites_role_id")
         configured_ids = {role_id for role_id in (first_role_id, favorites_role_id) if role_id}
@@ -311,8 +353,7 @@ class Reputation(commands.Cog):
 
         first_place: set[int] = set()
         favorites: set[int] = set()
-        awards_enabled = settings.get("reputation_awards_enabled", False)
-        if awards_enabled and settings["modules"].get("reputation", True):
+        if awards_enabled and module_enabled:
             if any(roles.get(role_id) is None for role_id in (first_role_id, favorites_role_id)):
                 return False
             rows = await self.active_leaderboard_rows(guild, 3)
