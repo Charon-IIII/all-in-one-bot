@@ -41,7 +41,7 @@ class Configuration(commands.Cog):
             "3. Use `/config module` to enable Welcome, AutoMod, or Translator individually.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
-            "6. To use translations, enable Message Content Intent in the Discord Developer Portal and `.env`, set `DEEPL_API_KEY`, enable Translator, and reply to a message with `.tr` for automatic language detection or `.tr <language code>` to specify one, such as `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL.\n"
+            "6. To translate a message into English, reply to it with `.tr` for automatic language detection or `.tr <language code>` to specify the source language, such as `.tr PL` or `.tr DE`.\n"
             "7. `/config show` displays the main settings.",
             ephemeral=True,
         )
