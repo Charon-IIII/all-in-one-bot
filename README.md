@@ -5,7 +5,7 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 ## Included modules
 
 - **Moderation:** warn, mute/timeout, unmute, kick, ban, and unban slash commands require a non-empty reason; purge accepts an optional reason. Configure a server mute role and timed role mutes survive restarts; without a configured role the bot uses Discord timeouts. Member cases persist the moderator, reason, timestamp, and DM delivery status. Affected users receive an action/moderator/reason/case-number DM when their privacy settings allow it.
-- **Rule-based escalation:** optional case-count escalation on `/mod warn`, with a rolling time window and configurable warning/timeout/kick/ban thresholds. It starts disabled. Repeated-case staff alerts can be sent to a private channel and optionally mention configured staff roles.
+- **Rule-based escalation:** optional case-count escalation on `/mod warn`, with a rolling time window and configurable warning/timeout/kick/ban thresholds. It starts disabled. Repeated-case alerts can be sent to a private channel and optionally mention configured staff roles.
 - **Logging:** message edits/deletions, member joins/leaves, moderation cases, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
