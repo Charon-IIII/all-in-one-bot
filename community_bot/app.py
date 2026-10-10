@@ -40,7 +40,7 @@ class CommunityBot(commands.Bot):
             guild = discord.Object(id=self.settings.sync_guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            logging.info("Slash-Befehle für Testserver %s synchronisiert", self.settings.sync_guild_id)
+            logging.info("Synced slash commands for test server %s", self.settings.sync_guild_id)
         else:
             await self.tree.sync()
 

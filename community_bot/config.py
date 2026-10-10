@@ -20,7 +20,7 @@ def load_settings() -> Settings:
     load_dotenv()
     token = os.getenv("DISCORD_TOKEN", "").strip()
     if not token:
-        raise RuntimeError("DISCORD_TOKEN fehlt. Lege eine .env-Datei anhand von .env.example an.")
+        raise RuntimeError("DISCORD_TOKEN is missing. Create a .env file based on .env.example.")
     guild_id = os.getenv("SYNC_GUILD_ID", "").strip()
     return Settings(
         token=token,

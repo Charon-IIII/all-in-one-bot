@@ -41,11 +41,11 @@ class Moderation(commands.Cog):
                 continue
             try:
                 if role in member.roles:
-                    await member.remove_roles(role, reason="Zeitbegrenzter Mute abgelaufen")
+                    await member.remove_roles(role, reason="Timed mute expired")
                 await self.bot.store.delete_active_role_mute(mute["guild_id"], mute["target_id"])
                 moderator = guild.me or self.bot.user
                 if moderator is not None:
-                    self.bot.dispatch("mod_action", guild, moderator, "Mute-Rolle automatisch entfernt", mute["reason"], f"Mute für {member} ist abgelaufen.")
+                    self.bot.dispatch("mod_action", guild, moderator, "Mute role automatically removed", mute["reason"], f"The mute for {member} has expired.")
             except discord.HTTPException:
                 # Keep the active record so the next loop retries after permission/API errors.
                 continue
@@ -54,7 +54,7 @@ class Moderation(commands.Cog):
     async def before_expire_role_mutes(self) -> None:
         await self.bot.wait_until_ready()
 
-    mod = app_commands.Group(name="mod", description="Moderation und Fallhistorie")
+    mod = app_commands.Group(name="mod", description="Moderation and case history")
 
     async def record(
         self,
@@ -68,18 +68,18 @@ class Moderation(commands.Cog):
         window_days = max(1, int(settings.get("escalation_window_days", 30)))
         since = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
         previous_count = 0
-        if not action.startswith(("Entbannung", "Entmuten")):
+        if not action.startswith(("Unban", "Unmute")):
             previous_count = await self.bot.store.recent_violation_count(interaction.guild_id, member.id, since)
         case_id = await self.bot.store.add_case(interaction.guild_id, member.id, interaction.user.id, action, reason)
         embed = discord.Embed(
-            title="Moderationsmaßnahme auf einem Server",
-            description=f"Auf **{discord.utils.escape_markdown(interaction.guild.name)}** wurde eine Moderationsmaßnahme für dich protokolliert.",
+            title="Moderation action on a server",
+            description=f"A moderation action has been recorded for you in **{discord.utils.escape_markdown(interaction.guild.name)}**.",
             color=discord.Color.orange(),
         )
         embed.add_field(name="Aktion", value=action, inline=False)
         embed.add_field(name="Moderator", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=False)
-        embed.add_field(name="Grund", value=reason[:1000], inline=False)
-        embed.set_footer(text=f"Fall #{case_id}")
+        embed.add_field(name="Reason", value=reason[:1000], inline=False)
+        embed.set_footer(text=f"Case #{case_id}")
         try:
             if dm_channel is None:
                 await member.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
@@ -90,7 +90,7 @@ class Moderation(commands.Cog):
             dm_sent = False
         await self.bot.store.set_case_dm_delivery(case_id, dm_sent)
         self.bot.dispatch("mod_case", interaction.guild, member, interaction.user, action, reason, case_id, dm_sent)
-        if not action.startswith(("Entbannung", "Entmuten")):
+        if not action.startswith(("Unban", "Unmute")):
             await self.notify_repeat_case(interaction, member, action, reason, case_id, since, previous_count, settings)
         return case_id, dm_sent
 
@@ -117,18 +117,18 @@ class Moderation(commands.Cog):
         roles = [role for role_id in role_ids if (role := interaction.guild.get_role(role_id)) is not None]
         role_mentions = " ".join(role.mention for role in roles)
         embed = discord.Embed(
-            title="Wiederholte Regelverstöße – Staff-Prüfung",
+            title="Repeated violations — staff review",
             description=(
-                f"{member.mention} hat **{current_count}** dokumentierte Moderationsfälle innerhalb von "
+                f"{member.mention} has **{current_count}** documented moderation cases within "
                 f"{max(1, int(settings.get('escalation_window_days', 30)))} Tagen.\n"
-                "Bitte prüft, ob eine weitere Maßnahme nötig ist. Dieser Hinweis löst selbst keine Strafe aus."
+                "Please review whether further action is needed. This alert does not apply a punishment."
             ),
             color=discord.Color.orange(),
         )
-        embed.add_field(name="Neuer Fall", value=f"#{case_id} · {action}\nGrund: {reason[:500]}", inline=False)
+        embed.add_field(name="New case", value=f"#{case_id} · {action}\nReason: {reason[:500]}", inline=False)
         cases = await self.bot.store.recent_violation_cases(interaction.guild_id, member.id, since, limit=5)
         lines = [f"#{row['id']} · {row['action']} · <@{row['moderator_id']}> · {row['reason'][:100]}" for row in cases]
-        embed.add_field(name="Letzte Fälle", value="\n".join(lines)[:1000] or "Keine", inline=False)
+        embed.add_field(name="Recent cases", value="\n".join(lines)[:1000] or "None", inline=False)
         try:
             await channel.send(
                 content=role_mentions or None,
@@ -141,20 +141,20 @@ class Moderation(commands.Cog):
     @staticmethod
     def escalation_for_count(settings: dict, violation_count: int) -> tuple[str, int | None]:
         if not settings.get("escalation_enabled"):
-            return "Verwarnung", None
+            return "Warning", None
         selected = None
         for level in sorted(settings.get("escalation_levels", []), key=lambda entry: int(entry.get("threshold", 0))):
             if violation_count >= int(level.get("threshold", 0)):
                 selected = level
         if selected is None:
-            return "Verwarnung", None
+            return "Warning", None
         action = selected.get("action")
         if action == "timeout":
             duration = max(30, min(int(selected.get("duration_minutes", 30)), 40320))
-            return f"Timeout ({duration} Minuten)", duration
+            return f"Timeout ({duration} minutes)", duration
         if action in {"kick", "ban"}:
             return ("Kick" if action == "kick" else "Ban"), None
-        return "Verwarnung", None
+        return "Warning", None
 
     async def apply_escalation(
         self, interaction: discord.Interaction, member: discord.Member, action: str, minutes: int | None, reason: str
@@ -163,26 +163,26 @@ class Moderation(commands.Cog):
         bot_member = guild.me
         actor = interaction.user
         if member.id == actor.id or (actor.id != guild.owner_id and member.top_role >= actor.top_role):
-            return "Deine Rollen-Hierarchie erlaubt diese Eskalation nicht.", action
+            return "Your role hierarchy does not allow this escalation.", action
         if bot_member is None or member.top_role >= bot_member.top_role:
-            return "Die Rollen-Hierarchie des Bots erlaubt diese Eskalation nicht.", action
+            return "The bot's role hierarchy does not allow this escalation.", action
         try:
             if action.startswith("Timeout"):
                 failure, used_role = await self.apply_timed_mute(interaction, member, minutes or 30, reason)
                 if failure:
                     return failure, action
                 if used_role:
-                    action = f"Mute-Rolle ({minutes or 30} Minuten)"
+                    action = f"Mute role ({minutes or 30} minutes)"
             elif action == "Kick":
                 if not actor.guild_permissions.kick_members or not bot_member.guild_permissions.kick_members:
-                    return "Die Berechtigung für einen Kick fehlt.", action
+                    return "The bot or moderator is missing the Kick Members permission.", action
                 await member.kick(reason=self.audit_reason(interaction, reason))
             elif action == "Ban":
                 if not actor.guild_permissions.ban_members or not bot_member.guild_permissions.ban_members:
-                    return "Die Berechtigung für einen Ban fehlt.", action
+                    return "The bot or moderator is missing the Ban Members permission.", action
                 await guild.ban(member, reason=self.audit_reason(interaction, reason), delete_message_seconds=0)
         except discord.HTTPException as exc:
-            return f"Discord hat die Eskalation abgelehnt ({exc}).", action
+            return f"Discord rejected the escalation ({exc}).", action
         return None, action
 
     async def apply_timed_mute(
@@ -194,12 +194,12 @@ class Moderation(commands.Cog):
         if role_id:
             role = interaction.guild.get_role(role_id)
             if role is None:
-                return "Die konfigurierte Mute-Rolle existiert nicht mehr.", True
+                return "The configured mute role no longer exists.", True
             if role.is_default() or role.managed or not role.is_assignable():
-                return "Die konfigurierte Mute-Rolle ist für den Bot nicht zuweisbar. Prüft die Rollen-Hierarchie und Manage-Roles-Berechtigung.", True
+                return "The configured mute role cannot be assigned by the bot. Check the role hierarchy and Manage Roles permission.", True
             bot_member = interaction.guild.me
             if bot_member is None or member.top_role >= bot_member.top_role:
-                return "Die Rollen-Hierarchie des Bots erlaubt es nicht, dieses Mitglied zu muten.", True
+                return "The bot's role hierarchy does not allow it to mute this member.", True
             await member.add_roles(role, reason=audit_reason)
             expires_at = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
             await self.bot.store.set_active_role_mute(
@@ -208,7 +208,7 @@ class Moderation(commands.Cog):
             return None, True
         bot_member = interaction.guild.me
         if bot_member is None or not bot_member.guild_permissions.moderate_members:
-            return "Dem Bot fehlt die Berechtigung für Discord-Timeouts.", False
+            return "The bot is missing the Moderate Members permission for Discord timeouts.", False
         await member.timeout(timedelta(minutes=minutes), reason=audit_reason)
         return None, False
 
@@ -222,7 +222,7 @@ class Moderation(commands.Cog):
 
     @staticmethod
     def delivery_note(dm_sent: bool) -> str:
-        return "DM an das Mitglied gesendet." if dm_sent else "DM konnte nicht zugestellt werden (möglicherweise DMs deaktiviert)."
+        return "DM sent to the member." if dm_sent else "Could not deliver the DM (the member may have DMs disabled)."
 
     @staticmethod
     def audit_reason(interaction: discord.Interaction, reason: str) -> str:
@@ -233,10 +233,10 @@ class Moderation(commands.Cog):
         cleaned = reason.strip()
         if cleaned:
             return cleaned
-        await interaction.response.send_message("Der Grund darf nicht leer sein oder nur aus Leerzeichen bestehen.", ephemeral=True)
+        await interaction.response.send_message("The reason cannot be empty or contain only whitespace.", ephemeral=True)
         return None
 
-    @mod.command(name="warn", description="Verwarnung dokumentieren")
+    @mod.command(name="warn", description="Record a warning")
     @module_enabled("moderation", "mod-warn")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def warn(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -252,38 +252,38 @@ class Moderation(commands.Cog):
         dm_channel = None
         if action in {"Kick", "Ban"}:
             dm_channel = await self.prepare_dm(member)
-        if action != "Verwarnung":
+        if action != "Warning":
             failure, action = await self.apply_escalation(interaction, member, action, minutes, reason)
         if failure:
-            recorded_action = f"Verwarnung (Eskalation fehlgeschlagen: {action})"
-            result = f"Eskalation **{action}** konnte nicht ausgeführt werden: {failure} Die Verwarnung wurde trotzdem gespeichert."
+            recorded_action = f"Warning (escalation failed: {action})"
+            result = f"Could not apply escalation **{action}**: {failure} The warning was still recorded."
         else:
             recorded_action = action
-            result = f"Automatische Maßnahme: **{action}**. " if action != "Verwarnung" else "Verwarnung erfasst. "
+            result = f"Automatic action: **{action}**. " if action != "Warning" else "Warning recorded. "
         case_id, dm_sent = await self.record(interaction, member, recorded_action, reason, dm_channel)
-        await interaction.response.send_message(f"{member.mention}: {result} Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
+        await interaction.response.send_message(f"{member.mention}: {result} Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="timeout", description="Mitglied temporär stummschalten (Mute-Rolle oder Discord-Timeout)")
+    @mod.command(name="timeout", description="Temporarily mute a member (mute role or Discord timeout)")
     @module_enabled("moderation", "mod-timeout")
     @app_commands.checks.has_permissions(moderate_members=True)
-    @app_commands.describe(minutes="Dauer in Minuten (1–40320)")
+    @app_commands.describe(minutes="Duration in minutes (1–40320)")
     async def timeout(self, interaction: discord.Interaction, member: discord.Member, minutes: app_commands.Range[int, 1, 40320], reason: app_commands.Range[str, 1, 500]) -> None:
         reason = await self.clean_reason(interaction, reason)
         if reason is None:
             return
         if member.id == interaction.user.id or member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("Dieses Mitglied kann aufgrund der Rollen-Hierarchie nicht moderiert werden.", ephemeral=True)
+            await interaction.response.send_message("This member cannot be moderated because of the role hierarchy.", ephemeral=True)
             return
         failure, used_role = await self.apply_timed_mute(interaction, member, minutes, reason)
         if failure:
             await interaction.response.send_message(failure, ephemeral=True)
             return
-        action = f"Mute-Rolle ({minutes} Minuten)" if used_role else f"Timeout ({minutes} Minuten)"
+        action = f"Mute role ({minutes} minutes)" if used_role else f"Timeout ({minutes} minutes)"
         case_id, dm_sent = await self.record(interaction, member, action, reason)
-        label = "Mute-Rolle" if used_role else "Discord-Timeout"
-        await interaction.response.send_message(f"{member.mention} erhielt {minutes} Minuten {label}. Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
+        label = "mute role" if used_role else "Discord timeout"
+        await interaction.response.send_message(f"{member.mention} received a {minutes}-minute {label}. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="unmute", description="Mute-Rolle und/oder Discord-Timeout aufheben")
+    @mod.command(name="unmute", description="Remove a mute role and/or Discord timeout")
     @module_enabled("moderation", "mod-unmute")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -291,7 +291,7 @@ class Moderation(commands.Cog):
         if reason is None:
             return
         if member.id == interaction.user.id or (member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id):
-            await interaction.response.send_message("Dieses Mitglied kann aufgrund der Rollen-Hierarchie nicht entmutet werden.", ephemeral=True)
+            await interaction.response.send_message("This member cannot be unmuted because of the role hierarchy.", ephemeral=True)
             return
         settings = await self.bot.store.get_settings(interaction.guild_id)
         active_mute = await self.bot.store.get_active_role_mute(interaction.guild_id, member.id)
@@ -299,12 +299,12 @@ class Moderation(commands.Cog):
         role = interaction.guild.get_role(role_id) if role_id else None
         bot_member = interaction.guild.me
         if member.is_timed_out() and (bot_member is None or not bot_member.guild_permissions.moderate_members or member.top_role >= bot_member.top_role):
-            await interaction.response.send_message("Der aktive Discord-Timeout kann wegen Bot-Berechtigung oder Rollen-Hierarchie nicht aufgehoben werden.", ephemeral=True)
+            await interaction.response.send_message("The active Discord timeout cannot be removed because of the bot's permissions or role hierarchy.", ephemeral=True)
             return
         role_removed = False
         if role and role in member.roles:
             if role.is_default() or role.managed or not role.is_assignable():
-                await interaction.response.send_message("Die Mute-Rolle kann der Bot nicht entfernen. Prüft Manage Roles und die Rollen-Hierarchie.", ephemeral=True)
+                await interaction.response.send_message("The bot cannot remove the mute role. Check Manage Roles and the role hierarchy.", ephemeral=True)
                 return
             await member.remove_roles(role, reason=self.audit_reason(interaction, reason))
             role_removed = True
@@ -315,12 +315,12 @@ class Moderation(commands.Cog):
             await member.timeout(None, reason=self.audit_reason(interaction, reason))
             timeout_cleared = True
         if not role_removed and not timeout_cleared:
-            await interaction.response.send_message("Für dieses Mitglied wurde keine aktive Mute-Rolle oder kein Discord-Timeout gefunden.", ephemeral=True)
+            await interaction.response.send_message("No active mute role or Discord timeout was found for this member.", ephemeral=True)
             return
-        case_id, dm_sent = await self.record(interaction, member, "Entmuten", reason)
-        await interaction.response.send_message(f"{member.mention} wurde entmutet. Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
+        case_id, dm_sent = await self.record(interaction, member, "Unmute", reason)
+        await interaction.response.send_message(f"{member.mention} was unmuted. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="kick", description="Mitglied vom Server entfernen")
+    @mod.command(name="kick", description="Remove a member from the server")
     @module_enabled("moderation", "mod-kick")
     @app_commands.checks.has_permissions(kick_members=True)
     async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -328,14 +328,14 @@ class Moderation(commands.Cog):
         if reason is None:
             return
         if member.id == interaction.user.id or member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("Dieses Mitglied kann aufgrund der Rollen-Hierarchie nicht entfernt werden.", ephemeral=True)
+            await interaction.response.send_message("This member cannot be removed because of the role hierarchy.", ephemeral=True)
             return
         dm_channel = await self.prepare_dm(member)
         await member.kick(reason=self.audit_reason(interaction, reason))
         case_id, dm_sent = await self.record(interaction, member, "Kick", reason, dm_channel)
-        await interaction.response.send_message(f"{member} wurde entfernt. Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
+        await interaction.response.send_message(f"{member} was removed. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="ban", description="Mitglied bannen")
+    @mod.command(name="ban", description="Ban a member")
     @module_enabled("moderation", "mod-ban")
     @app_commands.checks.has_permissions(ban_members=True)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -343,14 +343,14 @@ class Moderation(commands.Cog):
         if reason is None:
             return
         if member.id == interaction.user.id or member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("Dieses Mitglied kann aufgrund der Rollen-Hierarchie nicht gebannt werden.", ephemeral=True)
+            await interaction.response.send_message("This member cannot be banned because of the role hierarchy.", ephemeral=True)
             return
         dm_channel = await self.prepare_dm(member)
         await interaction.guild.ban(member, reason=self.audit_reason(interaction, reason), delete_message_seconds=0)
         case_id, dm_sent = await self.record(interaction, member, "Ban", reason, dm_channel)
-        await interaction.response.send_message(f"{member} wurde gebannt. Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
+        await interaction.response.send_message(f"{member} was banned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="unban", description="Mitglied anhand der Discord-ID entbannen")
+    @mod.command(name="unban", description="Unban a member by Discord ID")
     @module_enabled("moderation", "mod-unban")
     @app_commands.checks.has_permissions(ban_members=True)
     async def unban(self, interaction: discord.Interaction, user_id: str, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -362,12 +362,12 @@ class Moderation(commands.Cog):
             user = await self.bot.fetch_user(target_id)
             await interaction.guild.unban(user, reason=self.audit_reason(interaction, reason))
         except (ValueError, discord.NotFound):
-            await interaction.response.send_message("Ungültige ID oder dieses Konto ist nicht gebannt.", ephemeral=True)
+            await interaction.response.send_message("Invalid ID, or this account is not banned.", ephemeral=True)
             return
-        case_id, dm_sent = await self.record(interaction, user, "Entbannung", reason)
-        await interaction.response.send_message(f"{user} wurde entbannt. Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
+        case_id, dm_sent = await self.record(interaction, user, "Unban", reason)
+        await interaction.response.send_message(f"{user} was unbanned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="purge", description="Letzte Nachrichten im Kanal löschen")
+    @mod.command(name="purge", description="Delete recent messages in the channel")
     @module_enabled("moderation", "mod-purge")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def purge(
@@ -376,22 +376,22 @@ class Moderation(commands.Cog):
         amount: app_commands.Range[int, 1, 100],
         reason: app_commands.Range[str, 1, 500] | None = None,
     ) -> None:
-        reason = reason.strip() if reason and reason.strip() else "Kein Grund angegeben"
+        reason = reason.strip() if reason and reason.strip() else "No reason provided"
         if not isinstance(interaction.channel, discord.TextChannel):
-            await interaction.response.send_message("Dieser Befehl funktioniert nur in Textkanälen.", ephemeral=True)
+            await interaction.response.send_message("This command only works in text channels.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=amount, reason=f"{interaction.user} | {reason}"[:512])
-        self.bot.dispatch("mod_action", interaction.guild, interaction.user, "Nachrichten gelöscht", reason, f"{len(deleted)} Nachrichten in {interaction.channel.mention}")
-        await interaction.followup.send(f"{len(deleted)} Nachrichten gelöscht.", ephemeral=True)
+        self.bot.dispatch("mod_action", interaction.guild, interaction.user, "Messages purged", reason, f"{len(deleted)} messages in {interaction.channel.mention}")
+        await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
 
-    @mod.command(name="history", description="Letzte Bot-Fälle eines Mitglieds anzeigen")
+    @mod.command(name="history", description="Show a member's recent cases recorded by this bot")
     @module_enabled("moderation", "mod-history")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def history(self, interaction: discord.Interaction, member: discord.Member) -> None:
         rows = await self.bot.store.recent_cases(interaction.guild_id, member.id)
         if not rows:
-            await interaction.response.send_message("Für dieses Mitglied sind keine Fälle gespeichert.", ephemeral=True)
+            await interaction.response.send_message("No cases are saved for this member.", ephemeral=True)
             return
         lines = [f"**#{r['id']}** · {r['action']} · <@{r['moderator_id']}> · {r['reason'][:120]}" for r in rows]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)

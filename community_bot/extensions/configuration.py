@@ -15,11 +15,11 @@ class Configuration(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    config = app_commands.Group(name="config", description="Bot-Module und Serverkanäle konfigurieren")
-    flagged_words = app_commands.Group(name="flagged-words", description="Discord AutoMod-Wortfilter konfigurieren", parent=config)
-    escalation = app_commands.Group(name="escalation", description="Regelbasierte Strafen und Staff-Hinweise konfigurieren", parent=config)
+    config = app_commands.Group(name="config", description="Configure bot modules and server channels")
+    flagged_words = app_commands.Group(name="flagged-words", description="Configure Discord AutoMod word filters", parent=config)
+    escalation = app_commands.Group(name="escalation", description="Configure escalating actions and staff alerts", parent=config)
 
-    @config.command(name="setup", description="Standardmodule für diesen Server aktivieren")
+    @config.command(name="setup", description="Enable the default modules for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setup(self, interaction: discord.Interaction) -> None:
         await self.bot.store.update_settings(
@@ -27,38 +27,38 @@ class Configuration(commands.Cog):
             modules={"moderation": True, "logging": True, "welcome": False, "automod": False},
         )
         await interaction.response.send_message(
-            "Grundsetup gespeichert. Nächste Schritte: `/config log-channel` setzen, bei Bedarf `/config log-route` pro Kategorie anpassen und `/config guide` für die kurze Einrichtungsübersicht öffnen. Welcome, AutoMod und Translator aktivierst du nur, wenn du sie brauchst.",
+            "Basic setup saved. Next, set `/config log-channel`, optionally route categories with `/config log-route`, and use `/config guide` for a quick setup overview. Enable Welcome, AutoMod, or Translator only if you need them.",
             ephemeral=True,
         )
 
-    @config.command(name="guide", description="Kurze Einrichtungsanleitung für den Server anzeigen")
+    @config.command(name="guide", description="Show a short setup guide for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def guide(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
-            "**Schnellstart**\n"
-            "1. `/config setup` aktiviert Moderation und Logging.\n"
-            "2. `/config log-channel` legt den Standardkanal für Logs fest; `/config log-route` weist einzelne Kategorien eigenen Kanälen zu.\n"
-            "3. `/config module` schaltet Welcome, AutoMod oder Translator einzeln an.\n"
-            "4. `/config flagged-words enabled` aktiviert Discords Commonly Flagged Words; eigene Begriffe verwaltest du mit `add`, `remove` und `list`.\n"
-            "5. `/config escalation show` zeigt Regeln; passe sie mit `/config escalation` an. AutoMod-Treffer bleiben Logs und werden nicht als Cases gezählt.\n"
-            "6. Für Übersetzungen aktiviere Message Content Intent im Discord Developer Portal und in `.env`, setze `DEEPL_API_KEY`, aktiviere Translator und antworte mit `.tr` oder `.tr PL`.\n"
-            "7. `/config show` zeigt die wichtigsten aktuellen Einstellungen.",
+            "**Quick start**\n"
+            "1. `/config setup` enables Moderation and Logging.\n"
+            "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
+            "3. Use `/config module` to enable Welcome, AutoMod, or Translator individually.\n"
+            "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
+            "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
+            "6. To use translations, enable Message Content Intent in the Discord Developer Portal and `.env`, set `DEEPL_API_KEY`, enable Translator, and reply with `.tr` or `.tr PL`.\n"
+            "7. `/config show` displays the main settings.",
             ephemeral=True,
         )
 
-    @config.command(name="module", description="Ein Bot-Modul für diesen Server an- oder ausschalten")
-    @app_commands.describe(name="Modulname", enabled="Soll das Modul aktiv sein?")
+    @config.command(name="module", description="Enable or disable a bot module on this server")
+    @app_commands.describe(name="Module name", enabled="Should the module be enabled?")
     @app_commands.choices(name=[app_commands.Choice(name=x, value=x) for x in MODULES])
     @app_commands.checks.has_permissions(manage_guild=True)
     async def module(self, interaction: discord.Interaction, name: app_commands.Choice[str], enabled: bool) -> None:
         module_key = name.value.replace("-", "_")
         await self.bot.store.update_settings(interaction.guild_id, modules={module_key: enabled})
-        note = " Für Invite- und Wiederholungsfilter wird der Message Content Intent gebraucht; der native Wortfilter blockiert Nachrichten bereits vor dem Senden." if name.value == "automod" and enabled else ""
+        note = " The invite and repeat filters require the Message Content Intent; Discord's native word filter blocks messages before they are sent." if name.value == "automod" and enabled else ""
         if name.value == "translator":
             import os
-            note = " Antworte auf eine Nachricht mit `.tr` oder `.tr PL`. Falls `DEEPL_API_KEY` in `.env` fehlt, richte ihn dort ein und starte den Bot neu."
+            note = " Reply to a message with `.tr` or `.tr PL`. If `DEEPL_API_KEY` is missing from `.env`, add it there and restart the bot."
             if enabled and not os.getenv("DEEPL_API_KEY", "").strip():
-                note = " Der Translator ist aktiviert, braucht aber noch `DEEPL_API_KEY` in `.env` und einen Neustart."
+                note = " Translator is enabled, but needs `DEEPL_API_KEY` in `.env` and a bot restart."
         if module_key in {"automod", "flagged_words"}:
             cog = self.bot.get_cog("AutoMod")
             if cog is not None:
@@ -66,30 +66,30 @@ class Configuration(commands.Cog):
                     synced = await cog.sync_guild(interaction.guild)
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     await interaction.response.send_message(
-                        f"Modul gespeichert, aber Discord AutoMod konnte nicht synchronisiert werden: {exc}", ephemeral=True
+                        f"Module setting saved, but Discord AutoMod could not be synced: {exc}", ephemeral=True
                     )
                     return
                 if module_key == "flagged_words" and enabled and not synced:
-                    await interaction.response.send_message("Modul gespeichert, aber dem Bot fehlt die Discord-Berechtigung **Server verwalten** für AutoMod-Regeln.", ephemeral=True)
+                    await interaction.response.send_message("Module setting saved, but the bot needs the **Manage Server** permission to manage AutoMod rules.", ephemeral=True)
                     return
-        await interaction.response.send_message(f"Modul **{name.value}** {'aktiviert' if enabled else 'deaktiviert'}.{note}", ephemeral=True)
+        await interaction.response.send_message(f"Module **{name.value}** {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)
 
-    @config.command(name="command", description="Einen einzelnen Moderationsbefehl an- oder ausschalten")
-    @app_commands.describe(name="Befehlsschlüssel, zum Beispiel mod-warn", enabled="Soll der Befehl aktiv sein?")
+    @config.command(name="command", description="Enable or disable an individual moderation command")
+    @app_commands.describe(name="Command key, for example mod-warn", enabled="Should the command be enabled?")
     @app_commands.choices(name=[app_commands.Choice(name=x, value=x) for x in COMMANDS])
     @app_commands.checks.has_permissions(manage_guild=True)
     async def command_toggle(self, interaction: discord.Interaction, name: app_commands.Choice[str], enabled: bool) -> None:
         await self.bot.store.update_settings(interaction.guild_id, commands={name.value: enabled})
-        await interaction.response.send_message(f"Befehl **{name.value}** {'aktiviert' if enabled else 'deaktiviert'}.", ephemeral=True)
+        await interaction.response.send_message(f"Command **{name.value}** {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
-    @config.command(name="log-channel", description="Kanal für Server- und Moderationslogs festlegen")
+    @config.command(name="log-channel", description="Set the default channel for server and moderation logs")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def log_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
         await self.bot.store.update_settings(interaction.guild_id, log_channel_id=channel.id)
-        await interaction.response.send_message(f"Logs gehen ab jetzt nach {channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"Logs will now be sent to {channel.mention}.", ephemeral=True)
 
-    @config.command(name="log-route", description="Eine Logkategorie in einen eigenen Kanal leiten oder zurücksetzen")
-    @app_commands.describe(category="Logkategorie", channel="Zielkanal; leer setzt die Kategorie auf den Standardkanal zurück")
+    @config.command(name="log-route", description="Route one log category to a separate channel or reset it")
+    @app_commands.describe(category="Log category", channel="Destination channel; leave empty to use the default log channel")
     @app_commands.choices(category=[app_commands.Choice(name=x, value=x) for x in LOG_CATEGORIES])
     @app_commands.checks.has_permissions(manage_guild=True)
     async def log_route(
@@ -99,10 +99,10 @@ class Configuration(commands.Cog):
         channel: discord.TextChannel | None = None,
     ) -> None:
         await self.bot.store.update_settings(interaction.guild_id, log_channels={category.value: channel.id if channel else None})
-        destination = f"{channel.mention}" if channel else "Standard-Logkanal"
-        await interaction.response.send_message(f"Logs der Kategorie **{category.value}** gehen nach {destination}.", ephemeral=True)
+        destination = f"{channel.mention}" if channel else "the default log channel"
+        await interaction.response.send_message(f"Logs in **{category.value}** will be sent to {destination}.", ephemeral=True)
 
-    @flagged_words.command(name="enabled", description="Discords Commonly Flagged Words und eigene Wortfilter schalten")
+    @flagged_words.command(name="enabled", description="Enable or disable Discord's Commonly Flagged Words and custom filters")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def flagged_words_enabled(self, interaction: discord.Interaction, enabled: bool) -> None:
         await self.bot.store.update_settings(interaction.guild_id, modules={"flagged_words": enabled})
@@ -111,31 +111,31 @@ class Configuration(commands.Cog):
             if cog is not None:
                 synced = await cog.sync_guild(interaction.guild)
                 if enabled and not synced:
-                    await interaction.response.send_message("Einstellung gespeichert, aber dem Bot fehlt die Discord-Berechtigung **Server verwalten** für AutoMod-Regeln.", ephemeral=True)
+                    await interaction.response.send_message("Setting saved, but the bot needs the **Manage Server** permission to manage AutoMod rules.", ephemeral=True)
                     return
         except (discord.Forbidden, discord.HTTPException) as exc:
-            await interaction.response.send_message(f"Einstellung gespeichert, aber Discord AutoMod konnte nicht aktualisiert werden: {exc}", ephemeral=True)
+            await interaction.response.send_message(f"Setting saved, but Discord AutoMod could not be updated: {exc}", ephemeral=True)
             return
         await interaction.response.send_message(
-            f"Commonly Flagged Words und eigene Wortfilter {'aktiviert' if enabled else 'deaktiviert'}. Discord blockiert Treffer vor dem Senden.",
+            f"Commonly Flagged Words and custom filters {'enabled' if enabled else 'disabled'}. Discord blocks matching messages before they are sent.",
             ephemeral=True,
         )
 
-    @flagged_words.command(name="add", description="Begriff oder Phrase zur eigenen AutoMod-Wortliste hinzufügen")
-    @app_commands.describe(word="Begriff/Phrase (max. 60 Zeichen; Discord-Wildcard * möglich)")
+    @flagged_words.command(name="add", description="Add a term or phrase to the custom AutoMod word list")
+    @app_commands.describe(word="Term or phrase (max 60 characters; Discord wildcard * supported)")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def flagged_words_add(self, interaction: discord.Interaction, word: app_commands.Range[str, 1, 60]) -> None:
         term = word.strip().casefold()
         if not term:
-            await interaction.response.send_message("Der Begriff darf nicht leer sein.", ephemeral=True)
+            await interaction.response.send_message("The term cannot be empty.", ephemeral=True)
             return
         settings = await self.bot.store.get_settings(interaction.guild_id)
         terms = list(settings.get("automod_flagged_words", []))
         if term in {entry.casefold() for entry in terms}:
-            await interaction.response.send_message("Dieser Begriff steht bereits in der Liste.", ephemeral=True)
+            await interaction.response.send_message("That term is already in the list.", ephemeral=True)
             return
         if len(terms) >= 1000:
-            await interaction.response.send_message("Die eigene Liste hat das Discord-Limit von 1000 Begriffen erreicht.", ephemeral=True)
+            await interaction.response.send_message("The custom list has reached Discord's limit of 1,000 terms.", ephemeral=True)
             return
         terms.append(term)
         await self.bot.store.update_settings(interaction.guild_id, automod_flagged_words=terms)
@@ -144,15 +144,15 @@ class Configuration(commands.Cog):
             if cog is not None:
                 synced = await cog.sync_guild(interaction.guild)
                 if settings["modules"].get("flagged_words") and not synced:
-                    await interaction.response.send_message("Begriff gespeichert, aber dem Bot fehlt die Discord-Berechtigung **Server verwalten** für AutoMod-Regeln.", ephemeral=True)
+                    await interaction.response.send_message("Term saved, but the bot needs the **Manage Server** permission to manage AutoMod rules.", ephemeral=True)
                     return
         except (discord.Forbidden, discord.HTTPException) as exc:
-            await interaction.response.send_message(f"Begriff gespeichert, aber die Discord-Regel konnte nicht aktualisiert werden: {exc}", ephemeral=True)
+            await interaction.response.send_message(f"Term saved, but the Discord rule could not be updated: {exc}", ephemeral=True)
             return
-        await interaction.response.send_message(f"**{discord.utils.escape_markdown(term)}** wurde gespeichert. Aktiviere den Filter mit `/config flagged-words enabled`, falls er noch aus ist.", ephemeral=True)
+        await interaction.response.send_message(f"Saved **{discord.utils.escape_markdown(term)}**. Enable the filter with `/config flagged-words enabled` if it is currently off.", ephemeral=True)
 
-    @flagged_words.command(name="remove", description="Begriff aus der eigenen AutoMod-Wortliste entfernen")
-    @app_commands.describe(word="Exakter gespeicherter Begriff")
+    @flagged_words.command(name="remove", description="Remove a term from the custom AutoMod word list")
+    @app_commands.describe(word="Exact saved term")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def flagged_words_remove(self, interaction: discord.Interaction, word: app_commands.Range[str, 1, 60]) -> None:
         term = word.strip().casefold()
@@ -160,7 +160,7 @@ class Configuration(commands.Cog):
         terms = list(settings.get("automod_flagged_words", []))
         remaining = [entry for entry in terms if entry.casefold() != term]
         if len(remaining) == len(terms):
-            await interaction.response.send_message("Der Begriff wurde nicht gefunden.", ephemeral=True)
+            await interaction.response.send_message("That term was not found.", ephemeral=True)
             return
         await self.bot.store.update_settings(interaction.guild_id, automod_flagged_words=remaining)
         cog = self.bot.get_cog("AutoMod")
@@ -168,50 +168,50 @@ class Configuration(commands.Cog):
             if cog is not None:
                 synced = await cog.sync_guild(interaction.guild)
                 if settings["modules"].get("flagged_words") and not synced:
-                    await interaction.response.send_message("Begriff entfernt, aber dem Bot fehlt die Discord-Berechtigung **Server verwalten** für AutoMod-Regeln.", ephemeral=True)
+                    await interaction.response.send_message("Term removed, but the bot needs the **Manage Server** permission to manage AutoMod rules.", ephemeral=True)
                     return
         except (discord.Forbidden, discord.HTTPException) as exc:
-            await interaction.response.send_message(f"Begriff entfernt, aber die Discord-Regel konnte nicht aktualisiert werden: {exc}", ephemeral=True)
+            await interaction.response.send_message(f"Term removed, but the Discord rule could not be updated: {exc}", ephemeral=True)
             return
-        await interaction.response.send_message(f"**{discord.utils.escape_markdown(term)}** wurde entfernt.", ephemeral=True)
+        await interaction.response.send_message(f"Removed **{discord.utils.escape_markdown(term)}**.", ephemeral=True)
 
-    @flagged_words.command(name="list", description="Status und eigene Begriffe anzeigen")
+    @flagged_words.command(name="list", description="Show the filter status and custom terms")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def flagged_words_list(self, interaction: discord.Interaction) -> None:
         settings = await self.bot.store.get_settings(interaction.guild_id)
         words = settings.get("automod_flagged_words", [])
-        body = ", ".join(discord.utils.escape_markdown(word) for word in words) or "Keine eigenen Begriffe gesetzt."
+        body = ", ".join(discord.utils.escape_markdown(word) for word in words) or "No custom terms configured."
         if len(body) > 1700:
             body = body[:1697] + "…"
         await interaction.response.send_message(
-            f"**Wortfilter:** {'aktiv' if settings['modules'].get('flagged_words') else 'inaktiv'}\n"
-            "Zusätzlich ist Discords Commonly Flagged Words Preset aktiv, solange der Wortfilter eingeschaltet ist.\n"
-            f"**Eigene Begriffe ({len(words)}):** {body}",
+            f"**Word filter:** {'enabled' if settings['modules'].get('flagged_words') else 'disabled'}\n"
+            "Discord's Commonly Flagged Words preset is also enabled while the word filter is on.\n"
+            f"**Custom terms ({len(words)}):** {body}",
             ephemeral=True,
         )
 
-    @escalation.command(name="enabled", description="Automatische Eskalation bei /mod warn an- oder ausschalten")
+    @escalation.command(name="enabled", description="Enable or disable automatic escalation for /mod warn")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_enabled(self, interaction: discord.Interaction, enabled: bool) -> None:
         await self.bot.store.update_settings(interaction.guild_id, escalation_enabled=enabled)
-        state = "aktiviert" if enabled else "deaktiviert"
+        state = "enabled" if enabled else "disabled"
         await interaction.response.send_message(
-            f"Automatische Eskalation {state}. Sie wirkt nur auf neue `/mod warn`-Fälle; bestehende Bot-Cases bilden die Vorgeschichte.",
+            f"Automatic escalation is {state}. It only applies to new `/mod warn` cases; existing bot cases are used as history.",
             ephemeral=True,
         )
 
-    @escalation.command(name="window", description="Zeitraum setzen, in dem Moderationsfälle für Eskalation zählen")
-    @app_commands.describe(days="1 bis 365 Tage")
+    @escalation.command(name="window", description="Set the period in which moderation cases count toward escalation")
+    @app_commands.describe(days="1 to 365 days")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_window(self, interaction: discord.Interaction, days: app_commands.Range[int, 1, 365]) -> None:
         await self.bot.store.update_settings(interaction.guild_id, escalation_window_days=days)
-        await interaction.response.send_message(f"Eskalations- und Fallhinweis-Zeitraum: **{days} Tage**.", ephemeral=True)
+        await interaction.response.send_message(f"Escalation and case alert window: **{days} days**.", ephemeral=True)
 
-    @escalation.command(name="level", description="Maßnahme für eine bestimmte Anzahl dokumentierter Verstöße festlegen")
+    @escalation.command(name="level", description="Set an action for a specific number of documented violations")
     @app_commands.describe(
-        threshold="Verstoßnummer, ab der diese Maßnahme greift (2 bis 20)",
+        threshold="Violation count at which this action applies (2 to 20)",
         action="timeout, kick oder ban",
-        duration_minutes="Nur für Timeout: mindestens 30 Minuten; ohne Angabe gelten 30 Minuten",
+        duration_minutes="For timeouts only: at least 30 minutes; defaults to 30 minutes",
     )
     @app_commands.choices(action=[app_commands.Choice(name=x, value=x) for x in ESCALATION_ACTIONS])
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -230,40 +230,40 @@ class Configuration(commands.Cog):
         levels.append(level)
         levels.sort(key=lambda entry: int(entry["threshold"]))
         await self.bot.store.update_settings(interaction.guild_id, escalation_levels=levels)
-        detail = f" für {level['duration_minutes']} Minuten" if action.value == "timeout" else ""
-        await interaction.response.send_message(f"Ab Verstoß **#{threshold}** gilt **{action.value}**{detail}.", ephemeral=True)
+        detail = f" for {level['duration_minutes']} minutes" if action.value == "timeout" else ""
+        await interaction.response.send_message(f"Starting at violation **#{threshold}**, apply **{action.value}**{detail}.", ephemeral=True)
 
-    @escalation.command(name="level-remove", description="Eine automatische Eskalationsstufe entfernen")
-    @app_commands.describe(threshold="Die gespeicherte Verstoßnummer")
+    @escalation.command(name="level-remove", description="Remove an automatic escalation level")
+    @app_commands.describe(threshold="The saved violation count")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_level_remove(self, interaction: discord.Interaction, threshold: app_commands.Range[int, 2, 20]) -> None:
         settings = await self.bot.store.get_settings(interaction.guild_id)
         levels = [level for level in settings.get("escalation_levels", []) if int(level.get("threshold", 0)) != threshold]
         if len(levels) == len(settings.get("escalation_levels", [])):
-            await interaction.response.send_message("Für diese Verstoßnummer ist keine Stufe gespeichert.", ephemeral=True)
+            await interaction.response.send_message("No escalation level is saved for that violation count.", ephemeral=True)
             return
         await self.bot.store.update_settings(interaction.guild_id, escalation_levels=levels)
-        await interaction.response.send_message(f"Eskalationsstufe **#{threshold}** entfernt.", ephemeral=True)
+        await interaction.response.send_message(f"Removed escalation level **#{threshold}**.", ephemeral=True)
 
-    @escalation.command(name="alert-channel", description="Privaten Staff-Kanal für wiederholte Fälle setzen oder leeren")
-    @app_commands.describe(channel="Nur Staff sichtbarer Textkanal; leer deaktiviert die Hinweise")
+    @escalation.command(name="alert-channel", description="Set or clear the private staff channel for repeat-case alerts")
+    @app_commands.describe(channel="Text channel visible to staff only; leave empty to disable alerts")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_alert_channel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
         await self.bot.store.update_settings(interaction.guild_id, escalation_alert_channel_id=channel.id if channel else None)
-        await interaction.response.send_message(f"Wiederholungsfall-Hinweise: {channel.mention if channel else 'aus'}.", ephemeral=True)
+        await interaction.response.send_message(f"Repeat-case alerts: {channel.mention if channel else 'disabled'}.", ephemeral=True)
 
-    @escalation.command(name="alert-threshold", description="Ab welcher Fallanzahl Staff informiert wird")
+    @escalation.command(name="alert-threshold", description="Choose the case count that triggers a staff alert")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_alert_threshold(self, interaction: discord.Interaction, count: app_commands.Range[int, 2, 20]) -> None:
         await self.bot.store.update_settings(interaction.guild_id, escalation_alert_threshold=count)
-        await interaction.response.send_message(f"Staff-Hinweis ab **{count} dokumentierten Fällen** innerhalb des Eskalationszeitraums.", ephemeral=True)
+        await interaction.response.send_message(f"Staff alerts start at **{count} documented cases** within the escalation window.", ephemeral=True)
 
-    @escalation.command(name="alert-role", description="Eine Rolle bei Staff-Hinweisen erwähnen oder ausnehmen")
-    @app_commands.describe(role="Staff-Rolle", enabled="Soll diese Rolle erwähnt werden?")
+    @escalation.command(name="alert-role", description="Add or remove a role mention from staff alerts")
+    @app_commands.describe(role="Staff role", enabled="Should this role be mentioned?")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_alert_role(self, interaction: discord.Interaction, role: discord.Role, enabled: bool) -> None:
         if role.is_default():
-            await interaction.response.send_message("@everyone kann nicht als Staff-Erwähnung gesetzt werden.", ephemeral=True)
+            await interaction.response.send_message("@everyone cannot be configured as a staff alert mention.", ephemeral=True)
             return
         settings = await self.bot.store.get_settings(interaction.guild_id)
         role_ids = set(settings.get("escalation_alert_role_ids", []))
@@ -272,75 +272,75 @@ class Configuration(commands.Cog):
         else:
             role_ids.discard(role.id)
         await self.bot.store.update_settings(interaction.guild_id, escalation_alert_role_ids=sorted(role_ids))
-        await interaction.response.send_message(f"Rolle {role.mention} wird bei Staff-Hinweisen {'erwähnt' if enabled else 'nicht mehr erwähnt'}.", ephemeral=True)
+        await interaction.response.send_message(f"Role {role.mention} will {'be mentioned' if enabled else 'no longer be mentioned'} in staff alerts.", ephemeral=True)
 
-    @escalation.command(name="mute-role", description="Servereigene Rolle für zeitbegrenzte Mutes setzen oder leeren")
-    @app_commands.describe(role="Zuweisbare Mute-Rolle; leer stellt Discord-Timeouts wieder her")
+    @escalation.command(name="mute-role", description="Set or clear the server role used for timed mutes")
+    @app_commands.describe(role="Assignable mute role; leave empty to use Discord timeouts")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_mute_role(self, interaction: discord.Interaction, role: discord.Role | None = None) -> None:
         if role and (role.is_default() or role.managed or not role.is_assignable()):
             await interaction.response.send_message(
-                "Diese Rolle ist nicht zuweisbar. Prüft, dass sie keine Integrationsrolle und niedriger als die Bot-Rolle ist und der Bot Manage Roles hat.",
+                "This role cannot be assigned. Make sure it is not an integration role, is below the bot's highest role, and the bot has Manage Roles.",
                 ephemeral=True,
             )
             return
         await self.bot.store.update_settings(interaction.guild_id, mute_role_id=role.id if role else None)
         if role:
-            message = f"{role.mention} ist jetzt die Mute-Rolle für `/mod timeout` und Timeout-Eskalationen. Sie muss Nachrichten-/Sprachrechte passend sperren."
+            message = f"{role.mention} is now the mute role for `/mod timeout` and timeout escalations. Configure it to restrict the appropriate text and voice permissions."
         else:
-            message = "Mute-Rolle entfernt. `/mod timeout` und Timeout-Eskalationen verwenden wieder Discord-Timeouts. Bereits laufende Rollen-Mutes laufen mit ihrer gespeicherten Rolle aus."
+            message = "Mute role cleared. `/mod timeout` and timeout escalations will use Discord timeouts again. Existing role mutes will expire using their saved role."
         await interaction.response.send_message(message, ephemeral=True)
 
-    @escalation.command(name="show", description="Eskalations- und Staff-Hinweisregeln anzeigen")
+    @escalation.command(name="show", description="Show escalation rules and staff alert settings")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_show(self, interaction: discord.Interaction) -> None:
         settings = await self.bot.store.get_settings(interaction.guild_id)
         levels = settings.get("escalation_levels", [])
         level_text = "\n".join(
-            f"Ab #{level['threshold']}: {level['action']}" + (f" ({level.get('duration_minutes', 30)} Min.)" if level['action'] == "timeout" else "")
+            f"At #{level['threshold']}: {level['action']}" + (f" ({level.get('duration_minutes', 30)} min)" if level['action'] == "timeout" else "")
             for level in levels
-        ) or "Keine Eskalationsstufen gesetzt"
+        ) or "No escalation levels configured"
         channel_id = settings.get("escalation_alert_channel_id")
         roles = settings.get("escalation_alert_role_ids", [])
         mute_role_id = settings.get("mute_role_id")
         await interaction.response.send_message(
-            f"**Automatische Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}\n"
-            f"**Zeitraum:** {settings.get('escalation_window_days', 30)} Tage\n"
-            f"**Stufen:**\n{level_text}\n"
-            f"**Staff-Hinweise:** {f'<#{channel_id}>' if channel_id else 'aus'} ab {settings.get('escalation_alert_threshold', 3)} Fällen\n"
-            f"**Erwähnte Staff-Rollen:** {', '.join(f'<@&{role_id}>' for role_id in roles) or 'keine'}\n"
-            f"**Mute-Rolle:** {f'<@&{mute_role_id}>' if mute_role_id else 'Discord-Timeout'}",
+            f"**Automatic escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}\n"
+            f"**Window:** {settings.get('escalation_window_days', 30)} days\n"
+            f"**Levels:**\n{level_text}\n"
+            f"**Staff alerts:** {f'<#{channel_id}>' if channel_id else 'disabled'} from {settings.get('escalation_alert_threshold', 3)} cases\n"
+            f"**Mentioned staff roles:** {', '.join(f'<@&{role_id}>' for role_id in roles) or 'none'}\n"
+            f"**Mute role:** {f'<@&{mute_role_id}>' if mute_role_id else 'Discord timeout'}",
             ephemeral=True,
         )
 
-    @config.command(name="welcome-channel", description="Begrüßungskanal setzen oder leeren")
+    @config.command(name="welcome-channel", description="Set or clear the welcome channel")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome_channel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
         await self.bot.store.update_settings(interaction.guild_id, welcome_channel_id=channel.id if channel else None)
-        await interaction.response.send_message(f"Begrüßungskanal: {channel.mention if channel else 'aus'}.", ephemeral=True)
+        await interaction.response.send_message(f"Welcome channel: {channel.mention if channel else 'disabled'}.", ephemeral=True)
 
-    @config.command(name="welcome-message", description="Begrüßungstext festlegen")
-    @app_commands.describe(message="Platzhalter: {mention}, {user}, {server}, {count}")
+    @config.command(name="welcome-message", description="Set the welcome message")
+    @app_commands.describe(message="Placeholders: {mention}, {user}, {server}, {count}")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome_message(self, interaction: discord.Interaction, message: str) -> None:
         if len(message) > 1800:
-            await interaction.response.send_message("Der Text darf höchstens 1800 Zeichen lang sein.", ephemeral=True)
+            await interaction.response.send_message("The message cannot exceed 1,800 characters.", ephemeral=True)
             return
         await self.bot.store.update_settings(interaction.guild_id, welcome_message=message)
-        await interaction.response.send_message("Begrüßungstext gespeichert.", ephemeral=True)
+        await interaction.response.send_message("Welcome message saved.", ephemeral=True)
 
-    @config.command(name="show", description="Aktuelle Bot-Einstellungen anzeigen")
+    @config.command(name="show", description="Show the current bot settings")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def show(self, interaction: discord.Interaction) -> None:
         settings = await self.bot.store.get_settings(interaction.guild_id)
-        enabled = ", ".join(name for name, active in settings["modules"].items() if active) or "keine"
-        disabled = ", ".join(name for name, active in settings["commands"].items() if not active) or "keine"
-        log = f"<#{settings['log_channel_id']}>" if settings["log_channel_id"] else "nicht gesetzt"
-        welcome = f"<#{settings['welcome_channel_id']}>" if settings["welcome_channel_id"] else "nicht gesetzt"
-        mute_role = f"<@&{settings['mute_role_id']}>" if settings.get("mute_role_id") else "Discord-Timeout"
+        enabled = ", ".join(name for name, active in settings["modules"].items() if active) or "none"
+        disabled = ", ".join(name for name, active in settings["commands"].items() if not active) or "none"
+        log = f"<#{settings['log_channel_id']}>" if settings["log_channel_id"] else "not set"
+        welcome = f"<#{settings['welcome_channel_id']}>" if settings["welcome_channel_id"] else "not set"
+        mute_role = f"<@&{settings['mute_role_id']}>" if settings.get("mute_role_id") else "Discord timeout"
         overrides = settings.get("log_channels", {})
-        routes = ", ".join(f"{key}: <#{value}>" for key, value in overrides.items() if value) or "keine (Standardkanal wird verwendet)"
-        await interaction.response.send_message(f"**Aktive Module:** {enabled}\n**Deaktivierte Einzelbefehle:** {disabled}\n**Standard-Logkanal:** {log}\n**Kategorie-Logrouten:** {routes}\n**Welcome-Kanal:** {welcome}\n**Mute-Rolle:** {mute_role}\n**Eskalation:** {'an' if settings.get('escalation_enabled') else 'aus'}", ephemeral=True)
+        routes = ", ".join(f"{key}: <#{value}>" for key, value in overrides.items() if value) or "none (using the default channel)"
+        await interaction.response.send_message(f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

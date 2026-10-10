@@ -26,7 +26,7 @@ class AutoMod(commands.Cog):
             try:
                 await self.sync_guild(guild)
             except (discord.Forbidden, discord.HTTPException):
-                logging.exception("AutoMod-Regeln konnten für Guild %s nicht synchronisiert werden", guild.id)
+                logging.exception("Failed to sync AutoMod rules for guild %s", guild.id)
 
     async def sync_guild(self, guild: discord.Guild) -> bool:
         """Keep Discord's server-side filters aligned with this guild's settings."""
@@ -35,12 +35,12 @@ class AutoMod(commands.Cog):
         terms = list(dict.fromkeys(term.strip().casefold() for term in settings.get("automod_flagged_words", []) if term.strip()))
         if not guild.me or not guild.me.guild_permissions.manage_guild:
             if enabled:
-                logging.warning("Flagged-Words ist für Guild %s aktiviert, aber dem Bot fehlt Manage Server", guild.id)
+                logging.warning("Flagged words are enabled for guild %s, but the bot is missing Manage Server", guild.id)
             return False
         rules = {rule.name: rule for rule in await guild.fetch_automod_rules()}
         block_action = discord.AutoModRuleAction(
             type=discord.AutoModRuleActionType.block_message,
-            custom_message="Deine Nachricht enthält einen nicht erlaubten Begriff.",
+            custom_message="Your message contains a prohibited term.",
         )
 
         async def ensure_rule(name: str, trigger: discord.AutoModTrigger | None, should_enable: bool) -> None:
@@ -54,12 +54,12 @@ class AutoMod(commands.Cog):
                     trigger=trigger,
                     actions=[block_action],
                     enabled=True,
-                    reason="Synchronisiert durch Community Bot",
+                    reason="Synced by Community Bot",
                 )
                 return
             if not should_enable:
                 if existing.enabled:
-                    await existing.edit(enabled=False, reason="Community Bot Wortfilter deaktiviert")
+                    await existing.edit(enabled=False, reason="Community Bot flagged-word filter disabled")
                 return
             if trigger is not None:
                 if existing.enabled and existing.trigger.to_dict() == trigger.to_dict() and [action.to_dict() for action in existing.actions] == [block_action.to_dict()]:
@@ -68,10 +68,10 @@ class AutoMod(commands.Cog):
                     trigger=trigger,
                     actions=[block_action],
                     enabled=True,
-                    reason="Community Bot Wortfilter synchronisiert",
+                    reason="Community Bot flagged-word filter synced",
                 )
             elif existing.enabled:
-                await existing.edit(enabled=False, reason="Community Bot Wortliste ist leer")
+                await existing.edit(enabled=False, reason="Community Bot word list is empty")
 
         preset_trigger = discord.AutoModTrigger(
             type=discord.AutoModRuleTriggerType.keyword_preset,
@@ -128,7 +128,7 @@ class AutoMod(commands.Cog):
                 pass
         try:
             await message.channel.send(
-                f"{message.author.mention}, deine Nachricht wurde wegen {reason} entfernt.",
+                f"{message.author.mention}, your message was removed for {reason}.",
                 delete_after=8,
                 allowed_mentions=discord.AllowedMentions(users=True),
             )

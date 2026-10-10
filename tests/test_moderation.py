@@ -72,7 +72,7 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_escalation_policy_matches_kulturistan_defaults(self):
         disabled = {"escalation_enabled": False}
-        self.assertEqual(Moderation.escalation_for_count(disabled, 1), ("Verwarnung", None))
+        self.assertEqual(Moderation.escalation_for_count(disabled, 1), ("Warning", None))
 
         enabled = {
             "escalation_enabled": True,
@@ -82,39 +82,39 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
                 {"threshold": 5, "action": "ban"},
             ],
         }
-        self.assertEqual(Moderation.escalation_for_count(enabled, 1), ("Verwarnung", None))
-        self.assertEqual(Moderation.escalation_for_count(enabled, 2), ("Timeout (30 Minuten)", 30))
-        self.assertEqual(Moderation.escalation_for_count(enabled, 3), ("Timeout (4320 Minuten)", 4320))
+        self.assertEqual(Moderation.escalation_for_count(enabled, 1), ("Warning", None))
+        self.assertEqual(Moderation.escalation_for_count(enabled, 2), ("Timeout (30 minutes)", 30))
+        self.assertEqual(Moderation.escalation_for_count(enabled, 3), ("Timeout (4320 minutes)", 4320))
         self.assertEqual(Moderation.escalation_for_count(enabled, 5), ("Ban", None))
 
     async def test_case_sends_member_a_dm_and_logs_moderator_reason_and_delivery(self):
-        case_id, dm_sent = await self.cog.record(self.interaction, self.member, "Ban", "Regelverstoß")
+        case_id, dm_sent = await self.cog.record(self.interaction, self.member, "Ban", "Rule violation")
 
         self.assertEqual(case_id, 42)
         self.assertTrue(dm_sent)
-        self.assertEqual(self.store.saved, (20, 30, 10, "Ban", "Regelverstoß"))
+        self.assertEqual(self.store.saved, (20, 30, 10, "Ban", "Rule violation"))
         self.assertEqual(self.store.dm_delivery, (42, True))
         dm_embed = self.member.send.await_args.kwargs["embed"]
         fields = {field.name: field.value for field in dm_embed.fields}
         self.assertEqual(fields["Aktion"], "Ban")
         self.assertEqual(fields["Moderator"], "<@10> (`10`)")
-        self.assertEqual(fields["Grund"], "Regelverstoß")
-        self.assertEqual(dm_embed.footer.text, "Fall #42")
+        self.assertEqual(fields["Reason"], "Rule violation")
+        self.assertEqual(dm_embed.footer.text, "Case #42")
         self.bot.dispatch.assert_called_once_with(
-            "mod_case", self.guild, self.member, self.moderator, "Ban", "Regelverstoß", 42, True
+            "mod_case", self.guild, self.member, self.moderator, "Ban", "Rule violation", 42, True
         )
 
     async def test_forbidden_dm_does_not_hide_the_action_and_is_logged(self):
         response = SimpleNamespace(status=403, reason="Forbidden", headers={})
         self.member.send.side_effect = discord.Forbidden(response, "DMs disabled")
 
-        case_id, dm_sent = await self.cog.record(self.interaction, self.member, "Verwarnung", "Bitte bleib respektvoll")
+        case_id, dm_sent = await self.cog.record(self.interaction, self.member, "Warning", "Please be respectful")
 
         self.assertEqual(case_id, 42)
         self.assertFalse(dm_sent)
         self.assertEqual(self.store.dm_delivery, (42, False))
         self.bot.dispatch.assert_called_once_with(
-            "mod_case", self.guild, self.member, self.moderator, "Verwarnung", "Bitte bleib respektvoll", 42, False
+            "mod_case", self.guild, self.member, self.moderator, "Warning", "Please be respectful", 42, False
         )
 
     async def test_whitespace_only_reason_is_rejected(self):
@@ -155,9 +155,9 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         with TemporaryDirectory() as directory:
             store = Store(str(Path(directory) / "cases.sqlite3"))
             await store.open()
-            await store.add_case(20, 30, 10, "Verwarnung", "first")
-            await store.add_case(20, 30, 10, "Timeout (30 Minuten)", "second")
-            await store.add_case(20, 30, 10, "Entbannung", "appeal accepted")
+            await store.add_case(20, 30, 10, "Warning", "first")
+            await store.add_case(20, 30, 10, "Timeout (30 minutes)", "second")
+            await store.add_case(20, 30, 10, "Unban", "appeal accepted")
             since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
 
             self.assertEqual(await store.recent_violation_count(20, 30, since), 2)

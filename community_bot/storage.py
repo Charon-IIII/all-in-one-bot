@@ -13,7 +13,7 @@ DEFAULTS: dict[str, Any] = {
     "log_channel_id": None,
     "log_channels": {},
     "welcome_channel_id": None,
-    "welcome_message": "Willkommen {mention} auf **{server}**! Du bist Mitglied Nummer {count}.",
+    "welcome_message": "Welcome {mention} to **{server}**! You are member #{count}.",
     "automod_invites": True,
     "automod_repeats": True,
     "automod_timeout_seconds": 300,
@@ -132,7 +132,7 @@ class Store:
         assert self.db is not None
         async with self.db.execute(
             "SELECT COUNT(*) FROM mod_cases WHERE guild_id=? AND target_id=? AND created_at>=? "
-            "AND action NOT LIKE 'Entbannung%' AND action NOT LIKE 'Entmuten%'",
+            "AND action NOT LIKE 'Unban%' AND action NOT LIKE 'Unmute%'",
             (guild_id, target_id, since),
         ) as cur:
             row = await cur.fetchone()
@@ -142,7 +142,7 @@ class Store:
         assert self.db is not None
         async with self.db.execute(
             "SELECT * FROM mod_cases WHERE guild_id=? AND target_id=? AND created_at>=? "
-            "AND action NOT LIKE 'Entbannung%' AND action NOT LIKE 'Entmuten%' ORDER BY id DESC LIMIT ?",
+            "AND action NOT LIKE 'Unban%' AND action NOT LIKE 'Unmute%' ORDER BY id DESC LIMIT ?",
             (guild_id, target_id, since, limit),
         ) as cur:
             return await cur.fetchall()

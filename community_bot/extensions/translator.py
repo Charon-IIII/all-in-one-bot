@@ -29,7 +29,7 @@ class Translator(commands.Cog):
 
     async def _translate(self, text: str, source_language: str | None) -> tuple[str, str | None]:
         if self.client is None:
-            raise RuntimeError("DEEPL_API_KEY ist nicht konfiguriert.")
+            raise RuntimeError("DEEPL_API_KEY is not configured.")
         key = (source_language or "AUTO", text)
         cached = self.cache.get(key)
         now = time.monotonic()
@@ -86,22 +86,22 @@ class Translator(commands.Cog):
         if not parts or parts[0].casefold() != ".tr":
             return
         if len(parts) > 2:
-            await message.reply("Nutze `.tr` oder `.tr <Sprachcode>`, zum Beispiel `.tr PL`.", mention_author=False)
+            await message.reply("Use `.tr` or `.tr <language code>`, for example `.tr PL`.", mention_author=False)
             return
         source_language = parts[1].upper() if len(parts) == 2 else None
         if source_language and (len(source_language) != 2 or not source_language.isascii() or not source_language.isalpha()):
-            await message.reply("Bitte nutze einen zweistelligen Sprachcode, zum Beispiel `.tr PL`.", mention_author=False)
+            await message.reply("Please use a two-letter language code, for example `.tr PL`.", mention_author=False)
             return
         reference = message.reference
         if reference is None or reference.message_id is None:
-            await message.reply("Antworte mit `.tr` oder `.tr <Sprachcode>` auf eine Nachricht.", mention_author=False)
+            await message.reply("Reply to a message with `.tr` or `.tr <language code>`.", mention_author=False)
             return
 
         cooldown_key = (message.guild.id, message.author.id)
         now = time.monotonic()
         remaining = COOLDOWN_SECONDS - (now - self.cooldowns.get(cooldown_key, 0))
         if remaining > 0:
-            await message.reply(f"Bitte warte noch {int(remaining + 0.999)} Sekunden.", mention_author=False)
+            await message.reply(f"Please wait {int(remaining + 0.999)} seconds.", mention_author=False)
             return
         self.cooldowns[cooldown_key] = now
 
@@ -109,10 +109,10 @@ class Translator(commands.Cog):
             target = await message.channel.fetch_message(reference.message_id)
             text = target.content.strip()
             if not text:
-                await message.reply("Diese Nachricht enthält keinen übersetzbaren Text.", mention_author=False, delete_after=5)
+                await message.reply("That message contains no translatable text.", mention_author=False, delete_after=5)
                 return
             if len(text) > MAX_LENGTH:
-                await message.reply(f"Die Nachricht überschreitet das Limit von {MAX_LENGTH} Zeichen.", mention_author=False)
+                await message.reply(f"That message exceeds the {MAX_LENGTH}-character limit.", mention_author=False)
                 return
             if source_language and source_language.startswith("EN"):
                 getattr(self.bot, "suppressed_message_deletes", set()).add(message.id)
@@ -140,7 +140,7 @@ class Translator(commands.Cog):
                 **({"thread": message.channel} if isinstance(message.channel, discord.Thread) else {}),
             )
         except (deepl.DeepLException, discord.HTTPException, RuntimeError) as exc:
-            await message.reply("Übersetzung fehlgeschlagen. Prüfe Sprachcode, DeepL-Key und Bot-Berechtigungen.", mention_author=False)
+            await message.reply("Translation failed. Check the language code, DeepL API key, and bot permissions.", mention_author=False)
             logging.getLogger(__name__).warning("Translator error in guild %s: %s", message.guild.id, exc)
 
 
