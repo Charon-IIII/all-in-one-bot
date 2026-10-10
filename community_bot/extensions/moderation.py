@@ -76,7 +76,7 @@ class Moderation(commands.Cog):
             description=f"A moderation action has been recorded for you in **{discord.utils.escape_markdown(interaction.guild.name)}**.",
             color=discord.Color.orange(),
         )
-        embed.add_field(name="Aktion", value=action, inline=False)
+        embed.add_field(name="Action", value=action, inline=False)
         embed.add_field(name="Moderator", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=False)
         embed.add_field(name="Reason", value=reason[:1000], inline=False)
         embed.set_footer(text=f"Case #{case_id}")

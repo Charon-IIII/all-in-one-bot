@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 
-MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "translator"]
+MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "translator", "reputation"]
 COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
 ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
@@ -18,6 +18,7 @@ class Configuration(commands.Cog):
     config = app_commands.Group(name="config", description="Configure bot modules and server channels")
     flagged_words = app_commands.Group(name="flagged-words", description="Configure Discord AutoMod word filters", parent=config)
     escalation = app_commands.Group(name="escalation", description="Configure escalating actions and staff alerts", parent=config)
+    reputation = app_commands.Group(name="reputation", description="Configure server reputation", parent=config)
 
     @config.command(name="setup", description="Enable the default modules for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -27,7 +28,7 @@ class Configuration(commands.Cog):
             modules={"moderation": True, "logging": True, "welcome": False, "automod": False},
         )
         await interaction.response.send_message(
-            "Basic setup saved. Next, set `/config log-channel`, optionally route categories with `/config log-route`, and use `/config guide` for a quick setup overview. Enable Welcome, AutoMod, or Translator only if you need them.",
+            "Basic setup saved. Next, set `/config log-channel`, optionally route categories with `/config log-route`, and use `/config guide` for a quick setup overview. Enable Welcome, AutoMod, or Translator only if you need them; Reputation is enabled by default.",
             ephemeral=True,
         )
 
@@ -38,11 +39,10 @@ class Configuration(commands.Cog):
             "**Quick start**\n"
             "1. `/config setup` enables Moderation and Logging.\n"
             "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
-            "3. Use `/config module` to enable Welcome, AutoMod, or Translator individually.\n"
+            "3. Use `/config module` to enable or disable Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation limits and the leaderboard.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
-            "6. To translate a message into English, reply to it with `.tr` for automatic language detection or `.tr <language code>` to specify the source language, such as `.tr PL` or `.tr DE`.\n"
-            "7. `/config show` displays the main settings.",
+            "6. `/config show` displays the main settings.",
             ephemeral=True,
         )
 
@@ -210,7 +210,7 @@ class Configuration(commands.Cog):
     @escalation.command(name="level", description="Set an action for a specific number of documented violations")
     @app_commands.describe(
         threshold="Violation count at which this action applies (2 to 20)",
-        action="timeout, kick oder ban",
+        action="timeout, kick, or ban",
         duration_minutes="For timeouts only: at least 30 minutes; defaults to 30 minutes",
     )
     @app_commands.choices(action=[app_commands.Choice(name=x, value=x) for x in ESCALATION_ACTIONS])
@@ -340,7 +340,76 @@ class Configuration(commands.Cog):
         mute_role = f"<@&{settings['mute_role_id']}>" if settings.get("mute_role_id") else "Discord timeout"
         overrides = settings.get("log_channels", {})
         routes = ", ".join(f"{key}: <#{value}>" for key, value in overrides.items() if value) or "none (using the default channel)"
-        await interaction.response.send_message(f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}", ephemeral=True)
+        rep_channel_id = settings.get("reputation_leaderboard_channel_id")
+        rep_summary = (
+            f"{'enabled' if settings['modules'].get('reputation', True) else 'disabled'}; "
+            f"give/take caps {settings.get('reputation_max_give', 5)}/{settings.get('reputation_max_take', 5)}; "
+            f"leaderboard {f'<#{rep_channel_id}>' if rep_channel_id else 'not posted'}"
+        )
+        await interaction.response.send_message(
+            f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n"
+            f"**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n"
+            f"**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}\n"
+            f"**Reputation:** {rep_summary}",
+            ephemeral=True,
+        )
+
+    @reputation.command(name="max-give", description="Set the maximum reputation members can give per command")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def reputation_max_give(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, reputation_max_give=amount)
+        await interaction.response.send_message(f"Members can give up to **{amount} reputation** per `/rep give` command.", ephemeral=True)
+
+    @reputation.command(name="max-take", description="Set the maximum reputation members can take per command")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def reputation_max_take(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, reputation_max_take=amount)
+        await interaction.response.send_message(f"Members can take up to **{amount} reputation** per `/rep take` command.", ephemeral=True)
+
+    @reputation.command(name="auto-thanks", description="Enable or disable reputation for thank-you replies")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def reputation_auto_thanks(self, interaction: discord.Interaction, enabled: bool) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, reputation_auto_thanks=enabled)
+        note = " Automatic thank-you detection requires Message Content Intent enabled in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env`." if enabled else ""
+        await interaction.response.send_message(f"Automatic thank-you reputation is {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)
+
+    @reputation.command(name="leaderboard-channel", description="Set or clear the channel with the live reputation leaderboard")
+    @app_commands.describe(channel="Text channel; leave empty to remove the live leaderboard")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def reputation_leaderboard_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    ) -> None:
+        cog = self.bot.get_cog("Reputation")
+        if cog is None:
+            await self.bot.store.update_settings(
+                interaction.guild_id,
+                reputation_leaderboard_channel_id=channel.id if channel else None,
+                reputation_leaderboard_message_id=None,
+            )
+            await interaction.response.send_message("Leaderboard channel saved, but the reputation feature is unavailable right now.", ephemeral=True)
+            return
+        published = await cog.configure_leaderboard(interaction.guild, channel)
+        if channel is None:
+            message = "The live reputation leaderboard has been disabled."
+        elif published:
+            message = f"The live reputation leaderboard is now in {channel.mention} and will update when scores change."
+        else:
+            message = f"The leaderboard channel is saved as {channel.mention}, but I could not post there. Check my channel permissions."
+        await interaction.response.send_message(message, ephemeral=True)
+
+    @reputation.command(name="show", description="Show reputation module and leaderboard settings")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def reputation_show(self, interaction: discord.Interaction) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        channel_id = settings.get("reputation_leaderboard_channel_id")
+        await interaction.response.send_message(
+            f"**Reputation:** {'enabled' if settings['modules'].get('reputation', True) else 'disabled'}\n"
+            f"**Maximum give:** {settings.get('reputation_max_give', 5)} per command\n"
+            f"**Maximum take:** {settings.get('reputation_max_take', 5)} per command\n"
+            f"**Automatic thank-you awards:** {'enabled' if settings.get('reputation_auto_thanks', True) else 'disabled'}\n"
+            f"**Live leaderboard:** {f'<#{channel_id}>' if channel_id else 'not configured'}",
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot) -> None:

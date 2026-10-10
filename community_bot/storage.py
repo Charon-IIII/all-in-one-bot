@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -8,7 +9,7 @@ import aiosqlite
 
 
 DEFAULTS: dict[str, Any] = {
-    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False},
+    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False, "reputation": True},
     "commands": {},
     "log_channel_id": None,
     "log_channels": {},
@@ -28,6 +29,11 @@ DEFAULTS: dict[str, Any] = {
     "escalation_alert_channel_id": None,
     "escalation_alert_threshold": 3,
     "escalation_alert_role_ids": [],
+    "reputation_max_give": 5,
+    "reputation_max_take": 5,
+    "reputation_auto_thanks": True,
+    "reputation_leaderboard_channel_id": None,
+    "reputation_leaderboard_message_id": None,
 }
 
 
@@ -35,6 +41,7 @@ class Store:
     def __init__(self, path: str) -> None:
         self.path = path
         self.db: aiosqlite.Connection | None = None
+        self._write_lock = asyncio.Lock()
 
     async def open(self) -> None:
         self.db = await aiosqlite.connect(self.path)
@@ -69,6 +76,29 @@ class Store:
                 PRIMARY KEY(guild_id, target_id)
             );
             CREATE INDEX IF NOT EXISTS idx_role_mutes_expiry ON active_role_mutes(expires_at);
+            CREATE TABLE IF NOT EXISTS reputation_scores (
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                score INTEGER NOT NULL DEFAULT 0 CHECK(score >= 0),
+                PRIMARY KEY(guild_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS reputation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                giver_id INTEGER NOT NULL,
+                recipient_id INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                source_message_id INTEGER,
+                auto_day TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_rep_source_message
+                ON reputation_events(guild_id, source_message_id) WHERE source_message_id IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_rep_auto_pair_daily
+                ON reputation_events(guild_id, giver_id, recipient_id, auto_day) WHERE auto_day IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_rep_leaderboard
+                ON reputation_scores(guild_id, score DESC, user_id ASC);
             """
         )
         async with self.db.execute("PRAGMA table_info(mod_cases)") as cur:
@@ -96,28 +126,30 @@ class Store:
 
     async def update_settings(self, guild_id: int, **changes: Any) -> dict[str, Any]:
         assert self.db is not None
-        current = await self.get_settings(guild_id)
-        if "modules" in changes:
-            current["modules"] = {**current["modules"], **changes.pop("modules")}
-        if "log_channels" in changes:
-            current["log_channels"] = {**current["log_channels"], **changes.pop("log_channels")}
-        current.update(changes)
-        await self.db.execute(
-            "INSERT INTO guild_settings(guild_id, settings_json, updated_at) VALUES(?,?,?) "
-            "ON CONFLICT(guild_id) DO UPDATE SET settings_json=excluded.settings_json, updated_at=excluded.updated_at",
-            (guild_id, json.dumps(current), datetime.now(timezone.utc).isoformat()),
-        )
-        await self.db.commit()
-        return current
+        async with self._write_lock:
+            current = await self.get_settings(guild_id)
+            if "modules" in changes:
+                current["modules"] = {**current["modules"], **changes.pop("modules")}
+            if "log_channels" in changes:
+                current["log_channels"] = {**current["log_channels"], **changes.pop("log_channels")}
+            current.update(changes)
+            await self.db.execute(
+                "INSERT INTO guild_settings(guild_id, settings_json, updated_at) VALUES(?,?,?) "
+                "ON CONFLICT(guild_id) DO UPDATE SET settings_json=excluded.settings_json, updated_at=excluded.updated_at",
+                (guild_id, json.dumps(current), datetime.now(timezone.utc).isoformat()),
+            )
+            await self.db.commit()
+            return current
 
     async def add_case(self, guild_id: int, target_id: int, moderator_id: int, action: str, reason: str) -> int:
         assert self.db is not None
-        cur = await self.db.execute(
-            "INSERT INTO mod_cases(guild_id,target_id,moderator_id,action,reason,created_at) VALUES(?,?,?,?,?,?)",
-            (guild_id, target_id, moderator_id, action, reason, datetime.now(timezone.utc).isoformat()),
-        )
-        await self.db.commit()
-        return int(cur.lastrowid)
+        async with self._write_lock:
+            cur = await self.db.execute(
+                "INSERT INTO mod_cases(guild_id,target_id,moderator_id,action,reason,created_at) VALUES(?,?,?,?,?,?)",
+                (guild_id, target_id, moderator_id, action, reason, datetime.now(timezone.utc).isoformat()),
+            )
+            await self.db.commit()
+            return int(cur.lastrowid)
 
     async def recent_cases(self, guild_id: int, target_id: int, limit: int = 10) -> list[aiosqlite.Row]:
         assert self.db is not None
@@ -151,13 +183,14 @@ class Store:
         self, guild_id: int, target_id: int, role_id: int, expires_at: str, moderator_id: int, reason: str
     ) -> None:
         assert self.db is not None
-        await self.db.execute(
-            "INSERT INTO active_role_mutes(guild_id,target_id,role_id,expires_at,moderator_id,reason) VALUES(?,?,?,?,?,?) "
-            "ON CONFLICT(guild_id,target_id) DO UPDATE SET role_id=excluded.role_id, expires_at=excluded.expires_at, "
-            "moderator_id=excluded.moderator_id, reason=excluded.reason",
-            (guild_id, target_id, role_id, expires_at, moderator_id, reason),
-        )
-        await self.db.commit()
+        async with self._write_lock:
+            await self.db.execute(
+                "INSERT INTO active_role_mutes(guild_id,target_id,role_id,expires_at,moderator_id,reason) VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(guild_id,target_id) DO UPDATE SET role_id=excluded.role_id, expires_at=excluded.expires_at, "
+                "moderator_id=excluded.moderator_id, reason=excluded.reason",
+                (guild_id, target_id, role_id, expires_at, moderator_id, reason),
+            )
+            await self.db.commit()
 
     async def get_active_role_mute(self, guild_id: int, target_id: int) -> aiosqlite.Row | None:
         assert self.db is not None
@@ -173,10 +206,101 @@ class Store:
 
     async def delete_active_role_mute(self, guild_id: int, target_id: int) -> None:
         assert self.db is not None
-        await self.db.execute("DELETE FROM active_role_mutes WHERE guild_id=? AND target_id=?", (guild_id, target_id))
-        await self.db.commit()
+        async with self._write_lock:
+            await self.db.execute("DELETE FROM active_role_mutes WHERE guild_id=? AND target_id=?", (guild_id, target_id))
+            await self.db.commit()
 
     async def set_case_dm_delivery(self, case_id: int, delivered: bool) -> None:
         assert self.db is not None
-        await self.db.execute("UPDATE mod_cases SET dm_delivered=? WHERE id=?", (int(delivered), case_id))
-        await self.db.commit()
+        async with self._write_lock:
+            await self.db.execute("UPDATE mod_cases SET dm_delivered=? WHERE id=?", (int(delivered), case_id))
+            await self.db.commit()
+
+    async def change_reputation(
+        self,
+        guild_id: int,
+        giver_id: int,
+        recipient_id: int,
+        amount: int,
+        event_type: str,
+        *,
+        source_message_id: int | None = None,
+        auto_day: str | None = None,
+    ) -> int | None:
+        """Apply a reputation change atomically; return the new score or None if rejected."""
+        assert self.db is not None
+        async with self._write_lock:
+            await self.db.execute("BEGIN IMMEDIATE")
+            if amount < 0:
+                async with self.db.execute(
+                    "SELECT score FROM reputation_scores WHERE guild_id=? AND user_id=?",
+                    (guild_id, recipient_id),
+                ) as cur:
+                    current = await cur.fetchone()
+                if current is None or int(current[0]) < abs(amount):
+                    await self.db.rollback()
+                    return None
+            cur = await self.db.execute(
+                "INSERT OR IGNORE INTO reputation_events "
+                "(guild_id,giver_id,recipient_id,amount,event_type,source_message_id,auto_day,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    guild_id,
+                    giver_id,
+                    recipient_id,
+                    amount,
+                    event_type,
+                    source_message_id,
+                    auto_day,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            if cur.rowcount == 0:
+                await self.db.rollback()
+                return None
+            await self.db.execute(
+                "INSERT INTO reputation_scores(guild_id,user_id,score) VALUES(?,?,?) "
+                "ON CONFLICT(guild_id,user_id) DO UPDATE SET score=score+excluded.score",
+                (guild_id, recipient_id, amount),
+            )
+            async with self.db.execute(
+                "SELECT score FROM reputation_scores WHERE guild_id=? AND user_id=?",
+                (guild_id, recipient_id),
+            ) as cur:
+                row = await cur.fetchone()
+            await self.db.commit()
+            return int(row[0]) if row else 0
+
+    async def reputation_score(self, guild_id: int, user_id: int) -> int:
+        assert self.db is not None
+        async with self._write_lock:
+            async with self.db.execute(
+                "SELECT score FROM reputation_scores WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            ) as cur:
+                row = await cur.fetchone()
+            return int(row[0]) if row else 0
+
+    async def reputation_rank(self, guild_id: int, user_id: int) -> int | None:
+        assert self.db is not None
+        async with self._write_lock:
+            async with self.db.execute(
+                "SELECT score, (SELECT COUNT(*) FROM reputation_scores AS higher "
+                "WHERE higher.guild_id=score_row.guild_id AND higher.score>score_row.score) "
+                "FROM reputation_scores AS score_row WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None or int(row[0]) == 0:
+                return None
+            return int(row[1]) + 1
+
+    async def reputation_leaderboard(self, guild_id: int, limit: int = 10) -> list[aiosqlite.Row]:
+        assert self.db is not None
+        async with self._write_lock:
+            async with self.db.execute(
+                "SELECT user_id, score FROM reputation_scores WHERE guild_id=? AND score>0 "
+                "ORDER BY score DESC, user_id ASC LIMIT ?",
+                (guild_id, limit),
+            ) as cur:
+                return await cur.fetchall()

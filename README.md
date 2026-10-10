@@ -9,7 +9,9 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 - **Logging:** message edits/deletions, member joins/leaves, moderation cases, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
-- **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`.
+- **Reputation:** members can give and take reputation, check scores, and view the server leaderboard. Thank-you replies can award one point automatically (at most once per giver-recipient pair per day). Staff can set per-action give/take limits and an optional leaderboard channel whose post is edited when scores change.
+- **Help:** `/help` shows member commands; staff with moderation permissions can use `/staff-help` for the full command reference.
+- **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`. Reputation is enabled by default and can be managed under `/config reputation`.
 - **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr <language code>` to choose a source language, for example `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
 
 Features are configured per server. Slash commands are registered globally by default; set `SYNC_GUILD_ID` in `.env` while developing to update a test server immediately.
@@ -20,7 +22,7 @@ Features are configured per server. Slash commands are registered globally by de
 - A Discord application and bot token
 - Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, View Audit Log, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is needed when using a server mute role, and Manage Webhooks is needed when enabling Translator
 - The **Server Members Intent** enabled in the Discord Developer Portal for welcome and member join/leave logging
-- Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod, the `.tr` reply command, and full message text in edit/delete logs. Without it, slash commands work and message event metadata is still logged.
+- Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod, automatic thank-you reputation, the `.tr` reply command, and full message text in edit/delete logs. Without it, slash commands and manual reputation commands work and message event metadata is still logged.
 - Optional: a DeepL API key as `DEEPL_API_KEY` in `.env` for the translator module.
 
 ## Run locally
@@ -34,7 +36,7 @@ Copy-Item .env.example .env
 python -m community_bot
 ```
 
-Invite the bot with the `bot` and `applications.commands` scopes and the permissions above, including Manage Server for native AutoMod rules. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`; `/config guide` shows the next steps. Use `/config command` to toggle individual moderation commands such as `mod-purge`.
+Invite the bot with the `bot` and `applications.commands` scopes and the permissions above, including Manage Server for native AutoMod rules. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`; `/config guide` shows the next steps. Use `/config command` to toggle individual moderation commands such as `mod-purge`. Members can use `/help`, and staff can use `/staff-help` for the command reference.
 
 Set the default logging destination with `/config log-channel`, then optionally route a category with `/config log-route` (categories: `messages`, `members`, `channels`, `roles`, `voice`, `moderation`, `automod`). Passing no channel to a route resets it to the default channel. Enable `flagged-words` in `/config module`, or use `/config flagged-words enabled`; manage the custom list with `/config flagged-words add`, `remove`, and `list`. The native preset and custom list require Discord AutoMod rule permissions; Discord's preset requires Community features on the server. Discord displays its own block feedback to the member, and the bot logs the matched rule in the `automod` category.
 
@@ -43,6 +45,8 @@ Progressive sanctions can be configured with `/config escalation window`, `/conf
 For message, member, channel, role, kick, ban, and unban logs, grant **View Audit Log**. The bot matches recent audit entries by action, target, and channel where available so moderators and reasons appear when Discord provides an unambiguous match. If a match is missing or ambiguous, the log says so rather than guessing. Invite/repeat-filter hits are sent to the `automod` log route and are never added to moderation cases.
 
 For the translator, add `DEEPL_API_KEY` to `.env`, restart the bot, enable Translator via `/config module`, then reply to a message with `.tr` for automatic source-language detection or `.tr <language code>` to specify one, such as `.tr PL` or `.tr DE`. The command accepts a two-letter source code supported by DeepL.
+
+Reputation can be disabled with `/config module` or tuned with `/config reputation max-give`, `/config reputation max-take`, and `/config reputation auto-thanks`. The default manual limits are five points per give/take command; taking points cannot reduce a score below zero. Automatic thanks detection awards one point for a short thank-you reply, and each member can earn at most one automatic point per giver per UTC day. It recognizes common phrases including “thanks”, “thank you”, “thx”, “ty”, “danke”, “vielen Dank”, “merci”, “gracias”, and “much appreciated”. Set `/config reputation leaderboard-channel` to post a persistent top-ten board; the bot edits that same post when scores change. `/rep give`, `/rep take`, `/rep score`, and `/rep leaderboard` are available to all members while Reputation is enabled.
 
 ## Deploy on Oracle Cloud Infrastructure Always Free
 
