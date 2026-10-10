@@ -197,6 +197,9 @@ class Moderation(commands.Cog):
                 return "Die konfigurierte Mute-Rolle existiert nicht mehr.", True
             if role.is_default() or role.managed or not role.is_assignable():
                 return "Die konfigurierte Mute-Rolle ist für den Bot nicht zuweisbar. Prüft die Rollen-Hierarchie und Manage-Roles-Berechtigung.", True
+            bot_member = interaction.guild.me
+            if bot_member is None or member.top_role >= bot_member.top_role:
+                return "Die Rollen-Hierarchie des Bots erlaubt es nicht, dieses Mitglied zu muten.", True
             await member.add_roles(role, reason=audit_reason)
             expires_at = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
             await self.bot.store.set_active_role_mute(
@@ -294,6 +297,10 @@ class Moderation(commands.Cog):
         active_mute = await self.bot.store.get_active_role_mute(interaction.guild_id, member.id)
         role_id = active_mute["role_id"] if active_mute else settings.get("mute_role_id")
         role = interaction.guild.get_role(role_id) if role_id else None
+        bot_member = interaction.guild.me
+        if member.is_timed_out() and (bot_member is None or not bot_member.guild_permissions.moderate_members or member.top_role >= bot_member.top_role):
+            await interaction.response.send_message("Der aktive Discord-Timeout kann wegen Bot-Berechtigung oder Rollen-Hierarchie nicht aufgehoben werden.", ephemeral=True)
+            return
         role_removed = False
         if role and role in member.roles:
             if role.is_default() or role.managed or not role.is_assignable():
@@ -303,13 +310,12 @@ class Moderation(commands.Cog):
             role_removed = True
         if active_mute:
             await self.bot.store.delete_active_role_mute(interaction.guild_id, member.id)
-        bot_member = interaction.guild.me
         timeout_cleared = False
-        if bot_member and bot_member.guild_permissions.moderate_members:
+        if member.is_timed_out() and bot_member and bot_member.guild_permissions.moderate_members:
             await member.timeout(None, reason=self.audit_reason(interaction, reason))
             timeout_cleared = True
         if not role_removed and not timeout_cleared:
-            await interaction.response.send_message("Dem Bot fehlt die passende Berechtigung, um Rolle oder Discord-Timeout aufzuheben.", ephemeral=True)
+            await interaction.response.send_message("Für dieses Mitglied wurde keine aktive Mute-Rolle oder kein Discord-Timeout gefunden.", ephemeral=True)
             return
         case_id, dm_sent = await self.record(interaction, member, "Entmuten", reason)
         await interaction.response.send_message(f"{member.mention} wurde entmutet. Fall **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
