@@ -134,26 +134,37 @@ class EventLogs(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
-        changes = []
         if before.nick != after.nick:
-            changes.append(f"**Nickname:** {before.nick or before.name} → {after.nick or after.name}")
-        old_roles = {role.id: role for role in before.roles if role != before.guild.default_role}
-        new_roles = {role.id: role for role in after.roles if role != after.guild.default_role}
-        added = [role.mention for rid, role in new_roles.items() if rid not in old_roles]
-        removed = [role.mention for rid, role in old_roles.items() if rid not in new_roles]
-        if added:
-            changes.append("**Roles added:** " + ", ".join(added))
-        if removed:
-            changes.append("**Roles removed:** " + ", ".join(removed))
-        if changes:
-            embed = discord.Embed(title=f"Member updated: {after}", description="\n".join(changes), color=discord.Color.blurple())
+            embed = discord.Embed(title="Member nickname updated", color=discord.Color.blurple())
+            embed.add_field(name="Member", value=f"{after.mention} (`{after.id}`)", inline=False)
+            embed.add_field(name="Before", value=before.nick or before.name, inline=True)
+            embed.add_field(name="After", value=after.nick or after.name, inline=True)
             attribution = await self.audit_attribution(
                 after.guild,
-                (discord.AuditLogAction.member_update, discord.AuditLogAction.member_role_update),
+                (discord.AuditLogAction.member_update,),
                 after.id,
             )
             self.add_attribution(embed, attribution)
             await self.post(after.guild, embed, "members")
+
+        old_roles = {role.id: role for role in before.roles if role != before.guild.default_role}
+        new_roles = {role.id: role for role in after.roles if role != after.guild.default_role}
+        added = [role.mention for rid, role in new_roles.items() if rid not in old_roles]
+        removed = [role.mention for rid, role in old_roles.items() if rid not in new_roles]
+        if added or removed:
+            embed = discord.Embed(title="Member roles updated", color=discord.Color.blurple())
+            embed.add_field(name="Member", value=f"{after.mention} (`{after.id}`)", inline=False)
+            if added:
+                embed.add_field(name="Roles added", value=", ".join(added)[:1000], inline=False)
+            if removed:
+                embed.add_field(name="Roles removed", value=", ".join(removed)[:1000], inline=False)
+            attribution = await self.audit_attribution(
+                after.guild,
+                (discord.AuditLogAction.member_role_update,),
+                after.id,
+            )
+            self.add_attribution(embed, attribution)
+            await self.post(after.guild, embed, "roles")
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel) -> None:

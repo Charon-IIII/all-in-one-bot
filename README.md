@@ -5,8 +5,9 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. It 
 ## Included modules
 
 - **Moderation:** warn, mute/timeout, unmute, kick, ban, and unban slash commands require a non-empty reason; purge accepts an optional reason. Configure a server mute role and timed role mutes survive restarts; without a configured role the bot uses Discord timeouts. Member cases persist the moderator, reason, timestamp, and DM delivery status. Affected users receive an action/moderator/reason/case-number DM when their privacy settings allow it.
+- **Role management:** staff with Manage Roles can use `/role give` and `/role take` to manage assignable roles for members. A reason is required and changes are logged in the separately configurable `roles` category. Toggle the feature with `/config module role-management`.
 - **Rule-based escalation:** optional case-count escalation on `/mod warn`, with a rolling time window and configurable warning/timeout/kick/ban thresholds. It starts disabled. Repeated-case staff alerts can be sent to a private channel and optionally mention configured staff roles.
-- **Logging:** message edits/deletions, member joins/leaves, moderation cases, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
+- **Logging:** message edits/deletions, member joins/leaves, moderation cases, role grants/removals, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
 - **Welcome:** optional welcome channel and customizable message.
 - **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
 - **Reputation:** members can give and take reputation, check scores, and view the server leaderboard. Thank-you replies can award one point automatically (at most once per giver-recipient pair per day). Staff can set per-action give/take limits and an optional leaderboard channel whose post is edited when scores change. The bot creates and manages award roles by default: #1 gets **Most Loved**, and #2–#3 share **Community Favorite**; assignments move automatically with the live standings.
@@ -20,7 +21,7 @@ Features are configured per server. Slash commands are registered globally by de
 
 - Python 3.11 or newer
 - A Discord application and bot token
-- Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, View Audit Log, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is needed when using a server mute role or reputation award roles, and Manage Webhooks is needed when enabling Translator
+- Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, View Audit Log, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is needed for role management, a server mute role, or reputation awards, and Manage Webhooks is needed when enabling Translator
 - The **Server Members Intent** enabled in the Discord Developer Portal for welcome/member logging and reputation award role syncing
 - Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod, automatic thank-you reputation, the `.tr` reply command, and full message text in edit/delete logs. Without it, slash commands and manual reputation commands work and message event metadata is still logged.
 - Optional: a DeepL API key as `DEEPL_API_KEY` in `.env` for the translator module.

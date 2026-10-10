@@ -112,6 +112,15 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="🎭 Role management · requires Manage Roles",
+            value=(
+                "`/role give <member> <role> <reason>` — grant an assignable role.\n"
+                "`/role take <member> <role> <reason>` — remove an assignable role.\n"
+                "Use `/config module role-management` to toggle this feature. Changes are recorded in the `roles` log category; member and role hierarchy limits apply."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="⚙️ Core setup · requires Manage Server",
             value=(
                 "`/config setup` · `/config guide` · `/config show` — initialize and review the server setup.\n"

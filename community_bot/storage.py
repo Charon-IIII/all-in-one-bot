@@ -9,7 +9,7 @@ import aiosqlite
 
 
 DEFAULTS: dict[str, Any] = {
-    "modules": {"moderation": True, "logging": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False, "reputation": True},
+    "modules": {"moderation": True, "logging": True, "role_management": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False, "reputation": True},
     "commands": {},
     "log_channel_id": None,
     "log_channels": {},

@@ -14,6 +14,7 @@ EXTENSIONS = (
     "community_bot.extensions.configuration",
     "community_bot.extensions.moderation",
     "community_bot.extensions.logging_events",
+    "community_bot.extensions.role_management",
     "community_bot.extensions.welcome",
     "community_bot.extensions.automod",
     "community_bot.extensions.translator",

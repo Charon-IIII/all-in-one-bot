@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-MODULES = ["moderation", "logging", "welcome", "automod", "flagged-words", "translator", "reputation"]
+MODULES = ["moderation", "logging", "role-management", "welcome", "automod", "flagged-words", "translator", "reputation"]
 COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
 ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
@@ -38,7 +38,7 @@ class Configuration(commands.Cog):
             "**Quick start**\n"
             "1. `/config setup` enables Moderation and Logging.\n"
             "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
-            "3. Use `/config module` to enable or disable Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation, the leaderboard, and optional award roles.\n"
+            "3. Use `/config module` to enable or disable Role Management, Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation and the leaderboard.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
             "6. `/config show` displays the main settings.",
