@@ -9,7 +9,7 @@ import aiosqlite
 
 
 DEFAULTS: dict[str, Any] = {
-    "modules": {"moderation": True, "logging": True, "role_management": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False, "reputation": True},
+    "modules": {"moderation": True, "logging": True, "role_management": True, "welcome": False, "automod": False, "flagged_words": False, "translator": False, "reputation": True, "custom_commands": True},
     "commands": {},
     "log_channel_id": None,
     "log_channels": {},
@@ -38,6 +38,7 @@ DEFAULTS: dict[str, Any] = {
     "reputation_awards_configured": False,
     "reputation_first_place_role_id": None,
     "reputation_favorites_role_id": None,
+    "custom_command_manager_role_id": None,
 }
 
 
@@ -103,6 +104,21 @@ class Store:
                 ON reputation_events(guild_id, giver_id, recipient_id, auto_day) WHERE auto_day IS NOT NULL;
             CREATE INDEX IF NOT EXISTS idx_rep_leaderboard
                 ON reputation_scores(guild_id, score DESC, user_id ASC);
+            CREATE TABLE IF NOT EXISTS custom_commands (
+                guild_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                response TEXT NOT NULL,
+                ephemeral INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(guild_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS custom_command_sync_queue (
+                guild_id INTEGER PRIMARY KEY,
+                queued_at TEXT NOT NULL
+            );
             """
         )
         async with self.db.execute(
@@ -134,6 +150,10 @@ class Store:
             case_columns = {row["name"] for row in await cur.fetchall()}
         if "dm_delivered" not in case_columns:
             await self.db.execute("ALTER TABLE mod_cases ADD COLUMN dm_delivered INTEGER")
+        async with self.db.execute("PRAGMA table_info(custom_commands)") as cur:
+            custom_command_columns = {row["name"] for row in await cur.fetchall()}
+        if "enabled" not in custom_command_columns:
+            await self.db.execute("ALTER TABLE custom_commands ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
         await self.db.commit()
 
     async def close(self) -> None:
@@ -169,6 +189,113 @@ class Store:
             )
             await self.db.commit()
             return current
+
+    async def custom_commands(self, guild_id: int) -> list[aiosqlite.Row]:
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT * FROM custom_commands WHERE guild_id=? ORDER BY name COLLATE NOCASE", (guild_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+    async def get_custom_command(self, guild_id: int, name: str) -> aiosqlite.Row | None:
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT * FROM custom_commands WHERE guild_id=? AND name=?", (guild_id, name)
+        ) as cur:
+            return await cur.fetchone()
+
+    async def save_custom_command(
+        self, guild_id: int, name: str, description: str, response: str, ephemeral: bool, created_by: int
+    ) -> None:
+        assert self.db is not None
+        async with self._write_lock:
+            await self.db.execute(
+                "INSERT INTO custom_commands(guild_id,name,description,response,ephemeral,created_by,updated_at) "
+                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(guild_id,name) DO UPDATE SET "
+                "description=excluded.description,response=excluded.response,ephemeral=excluded.ephemeral,updated_at=excluded.updated_at",
+                (
+                    guild_id,
+                    name,
+                    description,
+                    response,
+                    int(ephemeral),
+                    created_by,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            await self.db.execute(
+                "INSERT INTO custom_command_sync_queue(guild_id,queued_at) VALUES(?,?) "
+                "ON CONFLICT(guild_id) DO UPDATE SET queued_at=excluded.queued_at",
+                (guild_id, datetime.now(timezone.utc).isoformat()),
+            )
+            await self.db.commit()
+
+    async def rename_custom_command(self, guild_id: int, old_name: str, name: str, description: str, response: str, ephemeral: bool) -> None:
+        assert self.db is not None
+        async with self._write_lock:
+            await self.db.execute(
+                "UPDATE custom_commands SET name=?,description=?,response=?,ephemeral=?,updated_at=? "
+                "WHERE guild_id=? AND name=?",
+                (name, description, response, int(ephemeral), datetime.now(timezone.utc).isoformat(), guild_id, old_name),
+            )
+            await self.db.execute(
+                "INSERT INTO custom_command_sync_queue(guild_id,queued_at) VALUES(?,?) "
+                "ON CONFLICT(guild_id) DO UPDATE SET queued_at=excluded.queued_at",
+                (guild_id, datetime.now(timezone.utc).isoformat()),
+            )
+            await self.db.commit()
+
+    async def delete_custom_command(self, guild_id: int, name: str) -> bool:
+        assert self.db is not None
+        async with self._write_lock:
+            cur = await self.db.execute(
+                "DELETE FROM custom_commands WHERE guild_id=? AND name=?", (guild_id, name)
+            )
+            if cur.rowcount > 0:
+                await self.db.execute(
+                    "INSERT INTO custom_command_sync_queue(guild_id,queued_at) VALUES(?,?) "
+                    "ON CONFLICT(guild_id) DO UPDATE SET queued_at=excluded.queued_at",
+                    (guild_id, datetime.now(timezone.utc).isoformat()),
+                )
+            await self.db.commit()
+            return cur.rowcount > 0
+
+    async def set_custom_command_enabled(self, guild_id: int, name: str, enabled: bool) -> bool:
+        assert self.db is not None
+        async with self._write_lock:
+            cur = await self.db.execute(
+                "UPDATE custom_commands SET enabled=?,updated_at=? WHERE guild_id=? AND name=?",
+                (int(enabled), datetime.now(timezone.utc).isoformat(), guild_id, name),
+            )
+            if cur.rowcount > 0:
+                await self.db.execute(
+                    "INSERT INTO custom_command_sync_queue(guild_id,queued_at) VALUES(?,?) "
+                    "ON CONFLICT(guild_id) DO UPDATE SET queued_at=excluded.queued_at",
+                    (guild_id, datetime.now(timezone.utc).isoformat()),
+                )
+            await self.db.commit()
+            return cur.rowcount > 0
+
+    async def queue_custom_command_sync(self, guild_id: int) -> None:
+        assert self.db is not None
+        async with self._write_lock:
+            await self.db.execute(
+                "INSERT INTO custom_command_sync_queue(guild_id,queued_at) VALUES(?,?) "
+                "ON CONFLICT(guild_id) DO UPDATE SET queued_at=excluded.queued_at",
+                (guild_id, datetime.now(timezone.utc).isoformat()),
+            )
+            await self.db.commit()
+
+    async def clear_custom_command_sync(self, guild_id: int) -> None:
+        assert self.db is not None
+        async with self._write_lock:
+            await self.db.execute("DELETE FROM custom_command_sync_queue WHERE guild_id=?", (guild_id,))
+            await self.db.commit()
+
+    async def pending_custom_command_syncs(self) -> set[int]:
+        assert self.db is not None
+        async with self.db.execute("SELECT guild_id FROM custom_command_sync_queue") as cur:
+            return {int(row[0]) for row in await cur.fetchall()}
 
     async def add_case(self, guild_id: int, target_id: int, moderator_id: int, action: str, reason: str) -> int:
         assert self.db is not None

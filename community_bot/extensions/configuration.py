@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-MODULES = ["moderation", "logging", "role-management", "welcome", "automod", "flagged-words", "translator", "reputation"]
+MODULES = ["moderation", "logging", "role-management", "welcome", "automod", "flagged-words", "translator", "reputation", "custom-commands"]
 COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
 ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
@@ -18,6 +18,7 @@ class Configuration(commands.Cog):
     flagged_words = app_commands.Group(name="flagged-words", description="Configure Discord AutoMod word filters", parent=config)
     escalation = app_commands.Group(name="escalation", description="Configure escalating actions and staff alerts", parent=config)
     reputation = app_commands.Group(name="reputation", description="Configure server reputation", parent=config)
+    custom_commands = app_commands.Group(name="custom-commands", description="Configure custom slash command managers", parent=config)
 
     @config.command(name="setup", description="Enable the default modules for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -38,7 +39,7 @@ class Configuration(commands.Cog):
             "**Quick start**\n"
             "1. `/config setup` enables Moderation and Logging.\n"
             "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
-            "3. Use `/config module` to enable or disable Role Management, Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation and the leaderboard.\n"
+            "3. Use `/config module` to enable or disable Role Management, Welcome, AutoMod, Translator, Reputation, or Custom Commands individually. Use `/config custom-commands manager-role` to choose who can create them.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
             "6. `/config show` displays the main settings.",
@@ -82,7 +83,35 @@ class Configuration(commands.Cog):
                 elif not await cog.sync_award_roles(interaction.guild):
                     note += " Reputation was updated, but its award roles could not be synchronized; check the bot's Manage Roles permission and role hierarchy."
                 await cog.refresh_leaderboard(interaction.guild)
+        if module_key == "custom_commands":
+            note = (
+                " Existing custom slash commands are active again."
+                if enabled
+                else " Existing custom slash commands remain in the slash menu but cannot run until this module is enabled again."
+            )
         await interaction.response.send_message(f"Module **{name.value}** {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)
+
+    @custom_commands.command(name="manager-role", description="Choose the role allowed to manage custom slash commands")
+    @app_commands.describe(role="Members with this role can create, edit, list, and delete custom commands")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def custom_command_manager_role(self, interaction: discord.Interaction, role: discord.Role) -> None:
+        if role.is_default() or role.managed:
+            await interaction.response.send_message("Choose a regular server role, not @everyone or an integration role.", ephemeral=True)
+            return
+        await self.bot.store.update_settings(interaction.guild_id, custom_command_manager_role_id=role.id)
+        await interaction.response.send_message(
+            f"{role.mention} can now create, edit, list, and delete custom slash commands. Server administrators can always manage them too.",
+            ephemeral=True,
+        )
+
+    @custom_commands.command(name="clear-manager-role", description="Remove the custom command manager role")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def custom_command_clear_manager_role(self, interaction: discord.Interaction) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, custom_command_manager_role_id=None)
+        await interaction.response.send_message(
+            "The custom command manager role was cleared. Only server administrators can manage custom commands until another role is configured.",
+            ephemeral=True,
+        )
 
     @config.command(name="command", description="Enable or disable an individual moderation command")
     @app_commands.describe(name="Command key, for example mod-warn", enabled="Should the command be enabled?")
@@ -357,11 +386,13 @@ class Configuration(commands.Cog):
             f"award roles {'enabled' if settings.get('reputation_awards_enabled', False) else 'disabled'}; "
             f"leaderboard {f'<#{rep_channel_id}>' if rep_channel_id else 'not posted'}"
         )
+        custom_manager_role_id = settings.get("custom_command_manager_role_id")
         await interaction.response.send_message(
             f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n"
             f"**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n"
             f"**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}\n"
-            f"**Reputation:** {rep_summary}",
+            f"**Reputation:** {rep_summary}\n"
+            f"**Custom command manager role:** {f'<@&{custom_manager_role_id}>' if custom_manager_role_id else 'admins only'}",
             ephemeral=True,
         )
 

@@ -12,6 +12,7 @@ from .storage import Store
 
 EXTENSIONS = (
     "community_bot.extensions.configuration",
+    "community_bot.extensions.custom_commands",
     "community_bot.extensions.moderation",
     "community_bot.extensions.logging_events",
     "community_bot.extensions.role_management",

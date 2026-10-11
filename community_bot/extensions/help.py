@@ -50,6 +50,19 @@ class Help(commands.Cog):
             commands_text.append("Reputation commands are currently disabled on this server.")
         embed.add_field(name="Member commands", value="\n".join(commands_text), inline=False)
 
+        if settings["modules"].get("custom_commands", True):
+            custom_commands = [
+                row for row in await self.bot.store.custom_commands(interaction.guild_id) if row["enabled"]
+            ]
+            if custom_commands:
+                lines = [
+                    f"`/{row['name']}` — {discord.utils.escape_markdown(str(row['description']))}"
+                    for row in custom_commands[:6]
+                ]
+                if len(custom_commands) > 6:
+                    lines.append(f"…and {len(custom_commands) - 6} more. Search for them in the slash-command menu.")
+                embed.add_field(name="Server commands", value="\n".join(lines), inline=False)
+
         if settings["modules"].get("translator"):
             embed.add_field(
                 name="Translation",
@@ -126,6 +139,17 @@ class Help(commands.Cog):
                 "`/config setup` · `/config guide` · `/config show` — initialize and review the server setup.\n"
                 "`/config module <name> <enabled>` — toggle a whole feature.\n"
                 "`/config command <name> <enabled>` — toggle an individual moderation command."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🧩 Custom slash commands · bot manager role or Manage Server",
+            value=(
+                "`/config custom-commands manager-role <role>` · `/config custom-commands clear-manager-role` — set or clear the manager role.\n"
+                "`/custom-command create <name> <description> <response> [ephemeral]` — create a command members can run like any other slash command.\n"
+                "`/custom-command edit <name> [new_name] [description] [response] [ephemeral]` · `/custom-command delete <name>` · `/custom-command list`.\n"
+                "`/custom-command toggle <name> <enabled>` — temporarily hide or restore one command without deleting it.\n"
+                "`/custom-command variables` explains `{user}`, `{username}`, `{server}`, and `{channel}` placeholders. Toggle execution with `/config module custom-commands`."
             ),
             inline=False,
         )
