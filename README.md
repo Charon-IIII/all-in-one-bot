@@ -7,7 +7,7 @@ A modular Discord community bot built with Python, `discord.py`, and SQLite. Use
 - Moderation cases with required reasons, configurable member DMs, and separately routed logs. Purge reasons are optional.
 - Channel lockdowns, timed mutes, configurable warning escalation, and repeat-case staff alerts.
 - Event logs, welcome messages, role management, AutoMod filters, and reputation with a live leaderboard.
-- Optional DeepL translation: reply to a message with `.tr` or `.tr DE` to choose the source language.
+- Optional DeepL translation: reply to a message with `.tr` or `.tr <language code>` to choose the source language.
 
 ## Requirements
 
