@@ -25,6 +25,7 @@ class Configuration(commands.Cog):
     escalation = app_commands.Group(name="escalation", description="Configure escalating actions and staff alerts", parent=config)
     reputation = app_commands.Group(name="reputation", description="Configure server reputation", parent=config)
     moderation_logs = app_commands.Group(name="moderation-logs", description="Configure moderation log copies and member DMs", parent=config)
+    lockdown = app_commands.Group(name="lockdown", description="Configure staff role access during channel lockdowns", parent=config)
 
     @config.command(name="setup", description="Enable the default modules for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -48,7 +49,7 @@ class Configuration(commands.Cog):
             "3. Use `/config module` to enable or disable Role Management, Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation and the leaderboard.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
-            "6. `/config show` displays the main settings.",
+            "6. Use `/config lockdown bypass-role` to let trusted staff roles keep chatting during lockdowns; `/config lockdown show` reviews them. `/config show` displays the main settings.",
             ephemeral=True,
         )
 
@@ -181,6 +182,42 @@ class Configuration(commands.Cog):
             f"**Copy to command channel:** {'enabled' if settings.get('moderation_log_command_channel') else 'disabled'}\n"
             f"**DM to affected member:** {'enabled' if settings.get('moderation_dm_enabled', True) else 'disabled'}\n"
             f"**DM details:** {included}",
+            ephemeral=True,
+        )
+
+    @lockdown.command(name="bypass-role", description="Allow or block a role from chatting during channel lockdowns")
+    @app_commands.describe(role="Trusted staff role", enabled="Should members with this role bypass lockdowns?")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def lockdown_bypass_role(
+        self, interaction: discord.Interaction, role: discord.Role, enabled: bool
+    ) -> None:
+        if role.is_default():
+            await interaction.response.send_message("@everyone cannot be a lockdown bypass role.", ephemeral=True)
+            return
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        role_ids = set(settings.get("lockdown_bypass_role_ids", []))
+        if enabled:
+            role_ids.add(role.id)
+        else:
+            role_ids.discard(role.id)
+        await self.bot.store.update_settings(interaction.guild_id, lockdown_bypass_role_ids=sorted(role_ids))
+        await interaction.response.send_message(
+            f"{role.mention} {'can' if enabled else 'can no longer'} chat during bot-managed channel lockdowns. "
+            "This only affects lockdowns started after the setting is changed.",
+            ephemeral=True,
+        )
+
+    @lockdown.command(name="show", description="Show roles allowed to chat during lockdowns")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def lockdown_show(self, interaction: discord.Interaction) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        roles = [
+            role.mention
+            for role_id in settings.get("lockdown_bypass_role_ids", [])
+            if (role := interaction.guild.get_role(role_id)) is not None
+        ]
+        await interaction.response.send_message(
+            "**Lockdown bypass roles:** " + (", ".join(roles) if roles else "none; all roles are blocked"),
             ephemeral=True,
         )
 
@@ -435,12 +472,17 @@ class Configuration(commands.Cog):
             f"command-channel copy {'on' if settings.get('moderation_log_command_channel') else 'off'}; "
             f"member DMs {'on' if settings.get('moderation_dm_enabled', True) else 'off'}"
         )
+        lockdown_roles = ", ".join(
+            f"<@&{role_id}>" for role_id in settings.get("lockdown_bypass_role_ids", [])
+            if interaction.guild.get_role(role_id) is not None
+        ) or "none"
         await interaction.response.send_message(
             f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n"
             f"**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n"
             f"**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}\n"
             f"**Reputation:** {rep_summary}\n"
-            f"**Moderation logs:** {mod_log_summary}",
+            f"**Moderation logs:** {mod_log_summary}\n"
+            f"**Lockdown bypass roles:** {lockdown_roles}",
             ephemeral=True,
         )
 

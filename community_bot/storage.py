@@ -17,6 +17,7 @@ DEFAULTS: dict[str, Any] = {
     "moderation_extra_log_channel_id": None,
     "moderation_dm_enabled": True,
     "moderation_dm_fields": {"action": True, "moderator": True, "reason": True, "case_number": True},
+    "lockdown_bypass_role_ids": [],
     "welcome_channel_id": None,
     "welcome_message": "Welcome {mention} to **{server}**! You are member #{count}.",
     "automod_invites": True,
@@ -261,7 +262,7 @@ class Store:
         guild_id: int,
         channel_id: int,
         everyone_role_id: int,
-        previous_overwrite: dict[str, bool | None],
+        previous_overwrite: dict[str, Any],
         moderator_id: int,
         reason: str,
     ) -> None:

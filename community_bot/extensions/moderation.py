@@ -389,7 +389,7 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, user, "Unban", reason)
         await interaction.response.send_message(f"{user} was unbanned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="lockdown", description="Prevent @everyone from sending messages in a text channel")
+    @mod.command(name="lockdown", description="Prevent regular members from sending messages in a text channel")
     @module_enabled("moderation", "mod-lockdown")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Text channel to lock", reason="Why the channel is being locked")
@@ -414,31 +414,88 @@ class Moderation(commands.Cog):
             return
 
         everyone = guild.default_role
-        overwrite = channel.overwrites_for(everyone)
-        previous = {permission: getattr(overwrite, permission) for permission in LOCKDOWN_PERMISSIONS}
+        current_overwrites = dict(channel.overwrites)
+        everyone_created = everyone not in current_overwrites
+        if everyone_created:
+            current_overwrites[everyone] = discord.PermissionOverwrite()
+
+        settings = await self.bot.store.get_settings(guild.id)
+        bypass_role_ids = {
+            int(role_id) for role_id in settings.get("lockdown_bypass_role_ids", [])
+            if guild.get_role(int(role_id)) is not None and int(role_id) != everyone.id
+        }
+        saved_targets: dict[str, dict] = {}
+        for target, overwrite in current_overwrites.items():
+            kind = self.lockdown_target_kind(target)
+            if kind is None:
+                continue
+            is_everyone = kind == "role" and target.id == everyone.id
+            if kind == "role":
+                bypass = not is_everyone and target.id in bypass_role_ids
+            else:
+                member = target if isinstance(target, discord.Member) else guild.get_member(target.id)
+                bypass = member is not None and any(role.id in bypass_role_ids for role in member.roles)
+            saved_targets[f"{kind}:{target.id}"] = {
+                "created": kind == "role" and target.id == everyone.id and everyone_created,
+                "permissions": {permission: getattr(overwrite, permission) for permission in LOCKDOWN_PERMISSIONS},
+            }
+            for permission in LOCKDOWN_PERMISSIONS:
+                setattr(overwrite, permission, True if bypass else False)
+
+        # A bypass role needs an explicit channel allow to override the @everyone deny.
+        present_role_ids = {
+            target.id for target in current_overwrites if self.lockdown_target_kind(target) == "role"
+        }
+        for role_id in bypass_role_ids - present_role_ids:
+            role = guild.get_role(role_id)
+            if role is None:
+                continue
+            overwrite = discord.PermissionOverwrite()
+            current_overwrites[role] = overwrite
+            saved_targets[f"role:{role.id}"] = {
+                "created": True,
+                "permissions": {permission: None for permission in LOCKDOWN_PERMISSIONS},
+            }
+            for permission in LOCKDOWN_PERMISSIONS:
+                setattr(overwrite, permission, True)
+
+        previous = {"version": 2, "permissions_synced": channel.permissions_synced, "targets": saved_targets}
         await interaction.response.defer(ephemeral=True)
         await self.bot.store.set_channel_lockdown(
             guild.id, channel.id, everyone.id, previous, interaction.user.id, reason
         )
-        for permission in LOCKDOWN_PERMISSIONS:
-            setattr(overwrite, permission, False)
         try:
-            await channel.set_permissions(
-                everyone,
-                overwrite=overwrite,
-                reason=self.audit_reason(interaction, reason),
-            )
+            await channel.edit(overwrites=current_overwrites, reason=self.audit_reason(interaction, reason))
         except (discord.Forbidden, discord.HTTPException) as exc:
             await self.bot.store.delete_channel_lockdown(guild.id, channel.id)
             await interaction.followup.send(f"Discord could not lock {channel.mention}: {exc}", ephemeral=True)
             return
-        details = f"{channel.mention} was locked for @everyone. Saved permissions can be restored with `/mod unlock`."
+        details = (
+            f"{channel.mention} was locked. All existing role and member send/thread overwrites were denied "
+            "except configured lockdown bypass roles. Previous values were saved for `/mod unlock`."
+        )
         self.bot.dispatch(
             "mod_action", guild, interaction.user, "Channel lockdown enabled", reason, details, interaction.channel
         )
-        await interaction.followup.send(f"Locked {channel.mention}. Use `/mod unlock` to restore its saved send permissions.", ephemeral=True)
+        await interaction.followup.send(
+            f"Locked {channel.mention}. Regular roles and member-specific allows are blocked; configured bypass roles can still chat. "
+            "Use `/mod unlock` to restore the saved permissions.", ephemeral=True
+        )
 
-    @mod.command(name="unlock", description="Restore the @everyone send permissions saved by the bot's lockdown")
+    @staticmethod
+    def lockdown_target_kind(target: discord.Role | discord.Member | discord.Object) -> str | None:
+        if isinstance(target, discord.Role):
+            return "role"
+        if isinstance(target, discord.Member):
+            return "member"
+        if isinstance(target, discord.Object):
+            if target.type is discord.Role:
+                return "role"
+            if target.type is discord.User:
+                return "member"
+        return None
+
+    @mod.command(name="unlock", description="Restore saved role and member permissions for a channel")
     @module_enabled("moderation", "mod-unlock")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Text channel to unlock", reason="Why the channel is being unlocked")
@@ -466,25 +523,63 @@ class Moderation(commands.Cog):
         if int(saved["everyone_role_id"]) != everyone.id:
             await interaction.response.send_message("The saved @everyone role no longer matches this server. No permissions were changed.", ephemeral=True)
             return
-        overwrite = channel.overwrites_for(everyone)
+
+        overwrites = dict(channel.overwrites)
+        current_targets = {
+            f"{kind}:{target.id}": target
+            for target in overwrites
+            if (kind := self.lockdown_target_kind(target)) is not None
+        }
         previous = json.loads(saved["previous_overwrite_json"])
-        for permission in LOCKDOWN_PERMISSIONS:
-            if permission in previous:
-                setattr(overwrite, permission, previous[permission])
+        targets = previous.get("targets") if isinstance(previous, dict) else None
+        if isinstance(targets, dict):
+            for key, snapshot in targets.items():
+                target = current_targets.get(key)
+                if target is None:
+                    kind, _, target_id = key.partition(":")
+                    if kind == "role":
+                        target = guild.get_role(int(target_id))
+                    elif kind == "member":
+                        target = guild.get_member(int(target_id))
+                    if target is None:
+                        continue
+                overwrite = overwrites.get(target, discord.PermissionOverwrite())
+                if snapshot.get("created"):
+                    for permission in LOCKDOWN_PERMISSIONS:
+                        setattr(overwrite, permission, None)
+                    if overwrite.is_empty():
+                        overwrites.pop(target, None)
+                    else:
+                        overwrites[target] = overwrite
+                    continue
+                for permission, value in snapshot.get("permissions", {}).items():
+                    if permission in LOCKDOWN_PERMISSIONS:
+                        setattr(overwrite, permission, value)
+                overwrites[target] = overwrite
+        else:
+            # Older lockdown records stored only the @everyone overwrite.
+            overwrite = overwrites.get(everyone, discord.PermissionOverwrite())
+            for permission in LOCKDOWN_PERMISSIONS:
+                if permission in previous:
+                    setattr(overwrite, permission, previous[permission])
+            if overwrite.is_empty():
+                overwrites.pop(everyone, None)
+            else:
+                overwrites[everyone] = overwrite
+
         await interaction.response.defer(ephemeral=True)
         try:
-            await channel.set_permissions(
-                everyone,
-                overwrite=None if overwrite.is_empty() else overwrite,
-                reason=self.audit_reason(interaction, reason),
-            )
+            if previous.get("permissions_synced") and channel.category is not None:
+                await channel.edit(sync_permissions=True, reason=self.audit_reason(interaction, reason))
+            else:
+                await channel.edit(overwrites=overwrites, reason=self.audit_reason(interaction, reason))
         except (discord.Forbidden, discord.HTTPException) as exc:
             await interaction.followup.send(f"Discord could not unlock {channel.mention}: {exc}", ephemeral=True)
             return
         await self.bot.store.delete_channel_lockdown(guild.id, channel.id)
-        details = f"{channel.mention} was unlocked. The bot restored only the saved @everyone send/thread permissions."
+        details = f"{channel.mention} was unlocked. Saved role and member send/thread permissions were restored."
         self.bot.dispatch("mod_action", guild, interaction.user, "Channel lockdown removed", reason, details, interaction.channel)
-        await interaction.followup.send(f"Unlocked {channel.mention} and restored its saved send permissions.", ephemeral=True)
+        await interaction.followup.send(f"Unlocked {channel.mention} and restored its saved permissions.", ephemeral=True)
 
     @mod.command(name="lockdown-status", description="Show channels currently locked by the bot")
     @module_enabled("moderation", "mod-lockdown-status")

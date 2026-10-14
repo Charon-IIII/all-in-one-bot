@@ -114,9 +114,9 @@ class Help(commands.Cog):
         embed.add_field(
             name="🔒 Channel lockdown · requires Manage Channels",
             value=(
-                "`/mod lockdown <channel> <reason>` — block @everyone from sending messages or creating threads; saves the previous channel permissions.\n"
-                "`/mod unlock <channel> <reason>` — restore the saved @everyone send/thread permissions.\n"
-                "`/mod lockdown-status [channel]` — review active bot-managed lockdowns."
+                "`/mod lockdown <channel> <reason>` — block regular roles and member-specific allows from sending messages or creating threads; saves their previous permissions.\n"
+                "`/mod unlock <channel> <reason>` — restore the saved role/member permissions.\n"
+                "`/mod lockdown-status [channel]` — review active bot-managed lockdowns. Configure trusted bypass roles with `/config lockdown bypass-role` or review them with `/config lockdown show`."
             ),
             inline=False,
         )
@@ -144,7 +144,8 @@ class Help(commands.Cog):
                 "`/config log-channel <channel>` — set the default destination.\n"
                 "`/config log-route <category> [channel]` — route a category separately or reset it to default.\n"
                 "`/config moderation-logs command-channel` and `additional-channel` — copy moderation entries to the command channel or another fixed channel.\n"
-                "`/config moderation-logs dm` and `dm-field` — control case DMs to affected members and choose whether action, moderator, reason, and case number are included."
+                "`/config moderation-logs dm` and `dm-field` — control case DMs to affected members and choose whether action, moderator, reason, and case number are included.\n"
+                "`/config lockdown bypass-role` and `show` — choose trusted roles that can keep chatting during channel lockdowns."
             ),
             inline=False,
         )
