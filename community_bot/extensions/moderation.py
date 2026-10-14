@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import discord
@@ -7,6 +8,13 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from ..checks import module_enabled
+
+LOCKDOWN_PERMISSIONS = (
+    "send_messages",
+    "send_messages_in_threads",
+    "create_public_threads",
+    "create_private_threads",
+)
 
 
 class Moderation(commands.Cog):
@@ -63,7 +71,7 @@ class Moderation(commands.Cog):
         action: str,
         reason: str,
         dm_channel: discord.DMChannel | None = None,
-    ) -> tuple[int, bool]:
+    ) -> tuple[int, bool | None]:
         settings = await self.bot.store.get_settings(interaction.guild_id)
         window_days = max(1, int(settings.get("escalation_window_days", 30)))
         since = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
@@ -71,25 +79,35 @@ class Moderation(commands.Cog):
         if not action.startswith(("Unban", "Unmute")):
             previous_count = await self.bot.store.recent_violation_count(interaction.guild_id, member.id, since)
         case_id = await self.bot.store.add_case(interaction.guild_id, member.id, interaction.user.id, action, reason)
-        embed = discord.Embed(
-            title="Moderation action on a server",
-            description=f"A moderation action has been recorded for you in **{discord.utils.escape_markdown(interaction.guild.name)}**.",
-            color=discord.Color.orange(),
-        )
-        embed.add_field(name="Action", value=action, inline=False)
-        embed.add_field(name="Moderator", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=False)
-        embed.add_field(name="Reason", value=reason[:1000], inline=False)
-        embed.set_footer(text=f"Case #{case_id}")
-        try:
-            if dm_channel is None:
-                await member.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-            else:
-                await dm_channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
-            dm_sent = True
-        except (discord.Forbidden, discord.HTTPException):
-            dm_sent = False
+        dm_enabled = settings.get("moderation_dm_enabled", True)
+        dm_sent: bool | None = None
+        if dm_enabled:
+            embed = discord.Embed(
+                title="Moderation case recorded",
+                description=f"A moderation action was recorded for you in **{discord.utils.escape_markdown(interaction.guild.name)}**.",
+                color=discord.Color.orange(),
+            )
+            included_fields = settings.get("moderation_dm_fields", {})
+            if included_fields.get("action", True):
+                embed.add_field(name="Action", value=action[:1000], inline=False)
+            if included_fields.get("moderator", True):
+                embed.add_field(name="Moderator", value=f"{interaction.user.mention} (`{interaction.user.id}`)", inline=False)
+            if included_fields.get("reason", True):
+                embed.add_field(name="Reason", value=reason[:1000], inline=False)
+            if included_fields.get("case_number", True):
+                embed.set_footer(text=f"Case #{case_id}")
+            try:
+                if dm_channel is None:
+                    await member.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                else:
+                    await dm_channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+                dm_sent = True
+            except (discord.Forbidden, discord.HTTPException):
+                dm_sent = False
         await self.bot.store.set_case_dm_delivery(case_id, dm_sent)
-        self.bot.dispatch("mod_case", interaction.guild, member, interaction.user, action, reason, case_id, dm_sent)
+        self.bot.dispatch(
+            "mod_case", interaction.guild, member, interaction.user, action, reason, case_id, dm_sent, interaction.channel
+        )
         if not action.startswith(("Unban", "Unmute")):
             await self.notify_repeat_case(interaction, member, action, reason, case_id, since, previous_count, settings)
         return case_id, dm_sent
@@ -221,7 +239,9 @@ class Moderation(commands.Cog):
             return None
 
     @staticmethod
-    def delivery_note(dm_sent: bool) -> str:
+    def delivery_note(dm_sent: bool | None) -> str:
+        if dm_sent is None:
+            return "Member DMs are disabled by server configuration."
         return "DM sent to the member." if dm_sent else "Could not deliver the DM (the member may have DMs disabled)."
 
     @staticmethod
@@ -250,7 +270,7 @@ class Moderation(commands.Cog):
         action, minutes = self.escalation_for_count(settings, prior_count + 1)
         failure = None
         dm_channel = None
-        if action in {"Kick", "Ban"}:
+        if action in {"Kick", "Ban"} and settings.get("moderation_dm_enabled", True):
             dm_channel = await self.prepare_dm(member)
         if action != "Warning":
             failure, action = await self.apply_escalation(interaction, member, action, minutes, reason)
@@ -330,7 +350,8 @@ class Moderation(commands.Cog):
         if member.id == interaction.user.id or member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message("This member cannot be removed because of the role hierarchy.", ephemeral=True)
             return
-        dm_channel = await self.prepare_dm(member)
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        dm_channel = await self.prepare_dm(member) if settings.get("moderation_dm_enabled", True) else None
         await member.kick(reason=self.audit_reason(interaction, reason))
         case_id, dm_sent = await self.record(interaction, member, "Kick", reason, dm_channel)
         await interaction.response.send_message(f"{member} was removed. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
@@ -345,7 +366,8 @@ class Moderation(commands.Cog):
         if member.id == interaction.user.id or member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
             await interaction.response.send_message("This member cannot be banned because of the role hierarchy.", ephemeral=True)
             return
-        dm_channel = await self.prepare_dm(member)
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        dm_channel = await self.prepare_dm(member) if settings.get("moderation_dm_enabled", True) else None
         await interaction.guild.ban(member, reason=self.audit_reason(interaction, reason), delete_message_seconds=0)
         case_id, dm_sent = await self.record(interaction, member, "Ban", reason, dm_channel)
         await interaction.response.send_message(f"{member} was banned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
@@ -367,6 +389,130 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, user, "Unban", reason)
         await interaction.response.send_message(f"{user} was unbanned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
+    @mod.command(name="lockdown", description="Prevent @everyone from sending messages in a text channel")
+    @module_enabled("moderation", "mod-lockdown")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.describe(channel="Text channel to lock", reason="Why the channel is being locked")
+    async def lockdown(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        reason: app_commands.Range[str, 1, 500],
+    ) -> None:
+        reason = await self.clean_reason(interaction, reason)
+        if reason is None:
+            return
+        guild = interaction.guild
+        bot_member = guild.me
+        if bot_member is None or not channel.permissions_for(bot_member).manage_channels:
+            await interaction.response.send_message("The bot needs Manage Channels access in the target channel.", ephemeral=True)
+            return
+        if await self.bot.store.get_channel_lockdown(guild.id, channel.id):
+            await interaction.response.send_message(
+                "This channel is already locked by the bot. Use `/mod unlock` to restore its saved permissions.", ephemeral=True
+            )
+            return
+
+        everyone = guild.default_role
+        overwrite = channel.overwrites_for(everyone)
+        previous = {permission: getattr(overwrite, permission) for permission in LOCKDOWN_PERMISSIONS}
+        await interaction.response.defer(ephemeral=True)
+        await self.bot.store.set_channel_lockdown(
+            guild.id, channel.id, everyone.id, previous, interaction.user.id, reason
+        )
+        for permission in LOCKDOWN_PERMISSIONS:
+            setattr(overwrite, permission, False)
+        try:
+            await channel.set_permissions(
+                everyone,
+                overwrite=overwrite,
+                reason=self.audit_reason(interaction, reason),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            await self.bot.store.delete_channel_lockdown(guild.id, channel.id)
+            await interaction.followup.send(f"Discord could not lock {channel.mention}: {exc}", ephemeral=True)
+            return
+        details = f"{channel.mention} was locked for @everyone. Saved permissions can be restored with `/mod unlock`."
+        self.bot.dispatch(
+            "mod_action", guild, interaction.user, "Channel lockdown enabled", reason, details, interaction.channel
+        )
+        await interaction.followup.send(f"Locked {channel.mention}. Use `/mod unlock` to restore its saved send permissions.", ephemeral=True)
+
+    @mod.command(name="unlock", description="Restore the @everyone send permissions saved by the bot's lockdown")
+    @module_enabled("moderation", "mod-unlock")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.describe(channel="Text channel to unlock", reason="Why the channel is being unlocked")
+    async def unlock(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        reason: app_commands.Range[str, 1, 500],
+    ) -> None:
+        reason = await self.clean_reason(interaction, reason)
+        if reason is None:
+            return
+        guild = interaction.guild
+        bot_member = guild.me
+        if bot_member is None or not channel.permissions_for(bot_member).manage_channels:
+            await interaction.response.send_message("The bot needs Manage Channels access in the target channel.", ephemeral=True)
+            return
+        saved = await self.bot.store.get_channel_lockdown(guild.id, channel.id)
+        if saved is None:
+            await interaction.response.send_message(
+                "There is no saved bot lockdown for this channel, so I won't change its permissions blindly.", ephemeral=True
+            )
+            return
+        everyone = guild.default_role
+        if int(saved["everyone_role_id"]) != everyone.id:
+            await interaction.response.send_message("The saved @everyone role no longer matches this server. No permissions were changed.", ephemeral=True)
+            return
+        overwrite = channel.overwrites_for(everyone)
+        previous = json.loads(saved["previous_overwrite_json"])
+        for permission in LOCKDOWN_PERMISSIONS:
+            if permission in previous:
+                setattr(overwrite, permission, previous[permission])
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await channel.set_permissions(
+                everyone,
+                overwrite=None if overwrite.is_empty() else overwrite,
+                reason=self.audit_reason(interaction, reason),
+            )
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            await interaction.followup.send(f"Discord could not unlock {channel.mention}: {exc}", ephemeral=True)
+            return
+        await self.bot.store.delete_channel_lockdown(guild.id, channel.id)
+        details = f"{channel.mention} was unlocked. The bot restored only the saved @everyone send/thread permissions."
+        self.bot.dispatch("mod_action", guild, interaction.user, "Channel lockdown removed", reason, details, interaction.channel)
+        await interaction.followup.send(f"Unlocked {channel.mention} and restored its saved send permissions.", ephemeral=True)
+
+    @mod.command(name="lockdown-status", description="Show channels currently locked by the bot")
+    @module_enabled("moderation", "mod-lockdown-status")
+    @app_commands.checks.has_permissions(manage_channels=True)
+    @app_commands.describe(channel="Optional channel to check")
+    async def lockdown_status(
+        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    ) -> None:
+        if channel is not None:
+            row = await self.bot.store.get_channel_lockdown(interaction.guild_id, channel.id)
+            if row is None:
+                await interaction.response.send_message(f"{channel.mention} is not locked by the bot.", ephemeral=True)
+                return
+            await interaction.response.send_message(
+                f"{channel.mention} is locked by the bot. Moderator: <@{row['moderator_id']}>. Reason: {row['reason']}",
+                ephemeral=True,
+            )
+            return
+        rows = await self.bot.store.list_channel_lockdowns(interaction.guild_id)
+        if not rows:
+            await interaction.response.send_message("No channels are currently locked by the bot.", ephemeral=True)
+            return
+        lines = [
+            f"<#{row['channel_id']}> · locked by <@{row['moderator_id']}> · {str(row['reason'])[:120]}"
+            for row in rows[:20]
+        ]
+        await interaction.response.send_message("**Bot-managed channel lockdowns**\n" + "\n".join(lines), ephemeral=True)
+
     @mod.command(name="purge", description="Delete recent messages in the channel")
     @module_enabled("moderation", "mod-purge")
     @app_commands.checks.has_permissions(manage_messages=True)
@@ -382,7 +528,10 @@ class Moderation(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=amount, reason=f"{interaction.user} | {reason}"[:512])
-        self.bot.dispatch("mod_action", interaction.guild, interaction.user, "Messages purged", reason, f"{len(deleted)} messages in {interaction.channel.mention}")
+        self.bot.dispatch(
+            "mod_action", interaction.guild, interaction.user, "Messages purged", reason,
+            f"{len(deleted)} messages in {interaction.channel.mention}", interaction.channel,
+        )
         await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
 
     @mod.command(name="history", description="Show a member's recent cases recorded by this bot")

@@ -112,6 +112,15 @@ class Help(commands.Cog):
             inline=False,
         )
         embed.add_field(
+            name="🔒 Channel lockdown · requires Manage Channels",
+            value=(
+                "`/mod lockdown <channel> <reason>` — block @everyone from sending messages or creating threads; saves the previous channel permissions.\n"
+                "`/mod unlock <channel> <reason>` — restore the saved @everyone send/thread permissions.\n"
+                "`/mod lockdown-status [channel]` — review active bot-managed lockdowns."
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="🎭 Role management · requires Manage Roles",
             value=(
                 "`/role give <member> <role> <reason>` — grant an assignable role.\n"
@@ -133,7 +142,9 @@ class Help(commands.Cog):
             name="📋 Logging · requires Manage Server",
             value=(
                 "`/config log-channel <channel>` — set the default destination.\n"
-                "`/config log-route <category> [channel]` — route a category separately or reset it to default."
+                "`/config log-route <category> [channel]` — route a category separately or reset it to default.\n"
+                "`/config moderation-logs command-channel` and `additional-channel` — copy moderation entries to the command channel or another fixed channel.\n"
+                "`/config moderation-logs dm` and `dm-field` — control case DMs to affected members and choose whether action, moderator, reason, and case number are included."
             ),
             inline=False,
         )

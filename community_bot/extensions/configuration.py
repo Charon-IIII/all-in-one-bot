@@ -5,9 +5,15 @@ from discord import app_commands
 from discord.ext import commands
 
 MODULES = ["moderation", "logging", "role-management", "welcome", "automod", "flagged-words", "translator", "reputation"]
-COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history"]
+COMMANDS = ["mod-warn", "mod-timeout", "mod-unmute", "mod-kick", "mod-ban", "mod-unban", "mod-purge", "mod-history", "mod-lockdown", "mod-unlock", "mod-lockdown-status"]
 LOG_CATEGORIES = ["messages", "members", "channels", "roles", "voice", "moderation", "automod"]
 ESCALATION_ACTIONS = ["timeout", "kick", "ban"]
+MODERATION_DM_FIELDS = {
+    "action": "action",
+    "moderator": "moderator",
+    "reason": "reason",
+    "case-number": "case_number",
+}
 
 
 class Configuration(commands.Cog):
@@ -18,6 +24,7 @@ class Configuration(commands.Cog):
     flagged_words = app_commands.Group(name="flagged-words", description="Configure Discord AutoMod word filters", parent=config)
     escalation = app_commands.Group(name="escalation", description="Configure escalating actions and staff alerts", parent=config)
     reputation = app_commands.Group(name="reputation", description="Configure server reputation", parent=config)
+    moderation_logs = app_commands.Group(name="moderation-logs", description="Configure moderation log copies and member DMs", parent=config)
 
     @config.command(name="setup", description="Enable the default modules for this server")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -37,7 +44,7 @@ class Configuration(commands.Cog):
         await interaction.response.send_message(
             "**Quick start**\n"
             "1. `/config setup` enables Moderation and Logging.\n"
-            "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels.\n"
+            "2. `/config log-channel` sets the default log channel; `/config log-route` sends individual categories to separate channels. `/config moderation-logs` configures extra moderation destinations and member DMs.\n"
             "3. Use `/config module` to enable or disable Role Management, Welcome, AutoMod, Translator, or Reputation individually; use `/config reputation` to configure reputation and the leaderboard.\n"
             "4. `/config flagged-words enabled` enables Discord's Commonly Flagged Words preset; manage custom terms with `add`, `remove`, and `list`.\n"
             "5. `/config escalation show` displays the rules; configure them with `/config escalation`. AutoMod hits are logged and never counted as moderation cases.\n"
@@ -111,6 +118,71 @@ class Configuration(commands.Cog):
         await self.bot.store.update_settings(interaction.guild_id, log_channels={category.value: channel.id if channel else None})
         destination = f"{channel.mention}" if channel else "the default log channel"
         await interaction.response.send_message(f"Logs in **{category.value}** will be sent to {destination}.", ephemeral=True)
+
+    @moderation_logs.command(name="command-channel", description="Copy moderation logs into the channel where a command ran")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def moderation_log_command_channel(self, interaction: discord.Interaction, enabled: bool) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, moderation_log_command_channel=enabled)
+        await interaction.response.send_message(
+            f"Moderation command log copies in the command channel are now {'enabled' if enabled else 'disabled'}. The configured moderation log route remains active.",
+            ephemeral=True,
+        )
+
+    @moderation_logs.command(name="additional-channel", description="Set or clear an extra moderation log destination")
+    @app_commands.describe(channel="Extra text channel; leave empty to clear this destination")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def moderation_log_additional_channel(
+        self, interaction: discord.Interaction, channel: discord.TextChannel | None = None
+    ) -> None:
+        await self.bot.store.update_settings(
+            interaction.guild_id, moderation_extra_log_channel_id=channel.id if channel else None
+        )
+        await interaction.response.send_message(
+            f"Extra moderation log destination: {channel.mention if channel else 'cleared'}.", ephemeral=True
+        )
+
+    @moderation_logs.command(name="dm", description="Enable or disable moderation case DMs to affected members")
+    @app_commands.describe(enabled="Send the member a DM when a case is recorded?")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def moderation_log_dm(self, interaction: discord.Interaction, enabled: bool) -> None:
+        await self.bot.store.update_settings(interaction.guild_id, moderation_dm_enabled=enabled)
+        await interaction.response.send_message(
+            f"Moderation case DMs to affected members are now {'enabled' if enabled else 'disabled'}.", ephemeral=True
+        )
+
+    @moderation_logs.command(name="dm-field", description="Choose which details are included in moderation case DMs")
+    @app_commands.describe(field="Detail to include in member DMs", enabled="Include this detail?")
+    @app_commands.choices(field=[app_commands.Choice(name=name, value=value) for name, value in MODERATION_DM_FIELDS.items()])
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def moderation_log_dm_field(
+        self, interaction: discord.Interaction, field: app_commands.Choice[str], enabled: bool
+    ) -> None:
+        await self.bot.store.update_settings(
+            interaction.guild_id, moderation_dm_fields={field.value: enabled}
+        )
+        await interaction.response.send_message(
+            f"The **{field.name}** detail is now {'included' if enabled else 'omitted'} in moderation case DMs.",
+            ephemeral=True,
+        )
+
+    @moderation_logs.command(name="show", description="Show moderation log and DM delivery settings")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def moderation_log_show(self, interaction: discord.Interaction) -> None:
+        settings = await self.bot.store.get_settings(interaction.guild_id)
+        fields = settings.get("moderation_dm_fields", {})
+        included = ", ".join(
+            name for name, key in (("action", "action"), ("moderator", "moderator"), ("reason", "reason"), ("case number", "case_number"))
+            if fields.get(key, True)
+        ) or "none"
+        extra_channel_id = settings.get("moderation_extra_log_channel_id")
+        await interaction.response.send_message(
+            f"**Category route:** configured with `/config log-route moderation`\n"
+            f"**Extra channel:** {f'<#{extra_channel_id}>' if extra_channel_id else 'not set'}\n"
+            f"**Copy to command channel:** {'enabled' if settings.get('moderation_log_command_channel') else 'disabled'}\n"
+            f"**DM to affected member:** {'enabled' if settings.get('moderation_dm_enabled', True) else 'disabled'}\n"
+            f"**DM details:** {included}",
+            ephemeral=True,
+        )
 
     @flagged_words.command(name="enabled", description="Enable or disable Discord's Commonly Flagged Words and custom filters")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -357,11 +429,18 @@ class Configuration(commands.Cog):
             f"award roles {'enabled' if settings.get('reputation_awards_enabled', False) else 'disabled'}; "
             f"leaderboard {f'<#{rep_channel_id}>' if rep_channel_id else 'not posted'}"
         )
+        extra_mod_channel_id = settings.get("moderation_extra_log_channel_id")
+        mod_log_summary = (
+            f"extra {f'<#{extra_mod_channel_id}>' if extra_mod_channel_id else 'none'}; "
+            f"command-channel copy {'on' if settings.get('moderation_log_command_channel') else 'off'}; "
+            f"member DMs {'on' if settings.get('moderation_dm_enabled', True) else 'off'}"
+        )
         await interaction.response.send_message(
             f"**Enabled modules:** {enabled}\n**Disabled commands:** {disabled}\n**Default log channel:** {log}\n"
             f"**Category log routes:** {routes}\n**Welcome channel:** {welcome}\n**Mute role:** {mute_role}\n"
             f"**Escalation:** {'enabled' if settings.get('escalation_enabled') else 'disabled'}\n"
-            f"**Reputation:** {rep_summary}",
+            f"**Reputation:** {rep_summary}\n"
+            f"**Moderation logs:** {mod_log_summary}",
             ephemeral=True,
         )
 

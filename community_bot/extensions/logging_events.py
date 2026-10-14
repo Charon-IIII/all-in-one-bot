@@ -59,15 +59,36 @@ class EventLogs(commands.Cog):
         else:
             embed.add_field(name="Moderator / Reason", value="No unambiguous match was found in the Discord audit log.", inline=False)
 
-    async def post(self, guild: discord.Guild, embed: discord.Embed, category: str = "messages") -> None:
+    async def post(
+        self,
+        guild: discord.Guild,
+        embed: discord.Embed,
+        category: str = "messages",
+        *,
+        source_channel: discord.abc.GuildChannel | discord.Thread | None = None,
+    ) -> None:
         settings = await self.bot.store.get_settings(guild.id)
         if not settings["modules"].get("logging"):
             return
-        channel_id = settings.get("log_channels", {}).get(category) or settings.get("log_channel_id")
-        if not channel_id:
-            return
-        channel = guild.get_channel(channel_id)
-        if isinstance(channel, discord.TextChannel):
+        channel_ids: set[int] = set()
+        primary_channel_id = settings.get("log_channels", {}).get(category) or settings.get("log_channel_id")
+        if primary_channel_id:
+            channel_ids.add(int(primary_channel_id))
+        if category == "moderation":
+            additional_channel_id = settings.get("moderation_extra_log_channel_id")
+            if additional_channel_id:
+                channel_ids.add(int(additional_channel_id))
+            if settings.get("moderation_log_command_channel") and source_channel is not None:
+                channel_ids.add(source_channel.id)
+        destinations: dict[int, discord.TextChannel | discord.Thread] = {}
+        for channel_id in channel_ids:
+            channel = guild.get_channel(channel_id)
+            if isinstance(channel, discord.TextChannel | discord.Thread):
+                destinations[channel_id] = channel
+        if category == "moderation" and settings.get("moderation_log_command_channel"):
+            if isinstance(source_channel, discord.TextChannel | discord.Thread):
+                destinations[source_channel.id] = source_channel
+        for channel in destinations.values():
             try:
                 await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
             except discord.HTTPException:
@@ -248,21 +269,24 @@ class EventLogs(commands.Cog):
         await self.post(guild, embed, "moderation")
 
     @commands.Cog.listener()
-    async def on_mod_case(self, guild, target, moderator, action: str, reason: str, case_id: int, dm_sent: bool) -> None:
+    async def on_mod_case(
+        self, guild, target, moderator, action: str, reason: str, case_id: int, dm_sent: bool | None, source_channel=None
+    ) -> None:
         embed = discord.Embed(title=f"Moderation case #{case_id}: {action}", color=discord.Color.orange())
         embed.add_field(name="Member", value=f"{target} (`{target.id}`)", inline=False)
         embed.add_field(name="Moderator", value=f"{moderator.mention} (`{moderator.id}`)", inline=False)
         embed.add_field(name="Reason", value=reason[:1000], inline=False)
-        embed.add_field(name="DM notification", value="Delivered" if dm_sent else "Not delivered", inline=False)
-        await self.post(guild, embed, "moderation")
+        dm_status = "Disabled by server configuration" if dm_sent is None else "Delivered" if dm_sent else "Not delivered"
+        embed.add_field(name="DM notification", value=dm_status, inline=False)
+        await self.post(guild, embed, "moderation", source_channel=source_channel)
 
     @commands.Cog.listener()
-    async def on_mod_action(self, guild, moderator, action: str, reason: str, details: str) -> None:
+    async def on_mod_action(self, guild, moderator, action: str, reason: str, details: str, source_channel=None) -> None:
         embed = discord.Embed(title=f"Moderation action: {action}", color=discord.Color.orange())
         embed.add_field(name="Moderator", value=f"{moderator.mention} (`{moderator.id}`)", inline=False)
         embed.add_field(name="Details", value=details[:1000], inline=False)
         embed.add_field(name="Reason", value=reason[:1000], inline=False)
-        await self.post(guild, embed, "moderation")
+        await self.post(guild, embed, "moderation", source_channel=source_channel)
 
     @commands.Cog.listener()
     async def on_automod_action(self, action: discord.AutoModAction) -> None:

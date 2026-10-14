@@ -13,6 +13,10 @@ DEFAULTS: dict[str, Any] = {
     "commands": {},
     "log_channel_id": None,
     "log_channels": {},
+    "moderation_log_command_channel": False,
+    "moderation_extra_log_channel_id": None,
+    "moderation_dm_enabled": True,
+    "moderation_dm_fields": {"action": True, "moderator": True, "reason": True, "case_number": True},
     "welcome_channel_id": None,
     "welcome_message": "Welcome {mention} to **{server}**! You are member #{count}.",
     "automod_invites": True,
@@ -80,6 +84,16 @@ class Store:
                 PRIMARY KEY(guild_id, target_id)
             );
             CREATE INDEX IF NOT EXISTS idx_role_mutes_expiry ON active_role_mutes(expires_at);
+            CREATE TABLE IF NOT EXISTS channel_lockdowns (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                everyone_role_id INTEGER NOT NULL,
+                previous_overwrite_json TEXT NOT NULL,
+                moderator_id INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                locked_at TEXT NOT NULL,
+                PRIMARY KEY(guild_id, channel_id)
+            );
             CREATE TABLE IF NOT EXISTS reputation_scores (
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
@@ -151,6 +165,7 @@ class Store:
             **saved,
             "modules": {**DEFAULTS["modules"], **saved.get("modules", {})},
             "log_channels": {**DEFAULTS["log_channels"], **saved.get("log_channels", {})},
+            "moderation_dm_fields": {**DEFAULTS["moderation_dm_fields"], **saved.get("moderation_dm_fields", {})},
         }
 
     async def update_settings(self, guild_id: int, **changes: Any) -> dict[str, Any]:
@@ -161,6 +176,8 @@ class Store:
                 current["modules"] = {**current["modules"], **changes.pop("modules")}
             if "log_channels" in changes:
                 current["log_channels"] = {**current["log_channels"], **changes.pop("log_channels")}
+            if "moderation_dm_fields" in changes:
+                current["moderation_dm_fields"] = {**current["moderation_dm_fields"], **changes.pop("moderation_dm_fields")}
             current.update(changes)
             await self.db.execute(
                 "INSERT INTO guild_settings(guild_id, settings_json, updated_at) VALUES(?,?,?) "
@@ -239,10 +256,59 @@ class Store:
             await self.db.execute("DELETE FROM active_role_mutes WHERE guild_id=? AND target_id=?", (guild_id, target_id))
             await self.db.commit()
 
-    async def set_case_dm_delivery(self, case_id: int, delivered: bool) -> None:
+    async def set_channel_lockdown(
+        self,
+        guild_id: int,
+        channel_id: int,
+        everyone_role_id: int,
+        previous_overwrite: dict[str, bool | None],
+        moderator_id: int,
+        reason: str,
+    ) -> None:
         assert self.db is not None
         async with self._write_lock:
-            await self.db.execute("UPDATE mod_cases SET dm_delivered=? WHERE id=?", (int(delivered), case_id))
+            await self.db.execute(
+                "INSERT INTO channel_lockdowns(guild_id,channel_id,everyone_role_id,previous_overwrite_json,moderator_id,reason,locked_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (
+                    guild_id,
+                    channel_id,
+                    everyone_role_id,
+                    json.dumps(previous_overwrite),
+                    moderator_id,
+                    reason,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            await self.db.commit()
+
+    async def get_channel_lockdown(self, guild_id: int, channel_id: int) -> aiosqlite.Row | None:
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT * FROM channel_lockdowns WHERE guild_id=? AND channel_id=?", (guild_id, channel_id)
+        ) as cur:
+            return await cur.fetchone()
+
+    async def list_channel_lockdowns(self, guild_id: int) -> list[aiosqlite.Row]:
+        assert self.db is not None
+        async with self.db.execute(
+            "SELECT * FROM channel_lockdowns WHERE guild_id=? ORDER BY locked_at DESC", (guild_id,)
+        ) as cur:
+            return await cur.fetchall()
+
+    async def delete_channel_lockdown(self, guild_id: int, channel_id: int) -> None:
+        assert self.db is not None
+        async with self._write_lock:
+            await self.db.execute(
+                "DELETE FROM channel_lockdowns WHERE guild_id=? AND channel_id=?", (guild_id, channel_id)
+            )
+            await self.db.commit()
+
+    async def set_case_dm_delivery(self, case_id: int, delivered: bool | None) -> None:
+        assert self.db is not None
+        async with self._write_lock:
+            value = None if delivered is None else int(delivered)
+            await self.db.execute("UPDATE mod_cases SET dm_delivered=? WHERE id=?", (value, case_id))
             await self.db.commit()
 
     async def change_reputation(
