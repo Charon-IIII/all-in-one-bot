@@ -1,68 +1,54 @@
 # Community Bot
 
-A modular Discord community bot built with Python, `discord.py`, and SQLite. It is designed as a self-hosted replacement foundation for common moderation, server logging, welcome, and anti-spam workflows.
+A modular Discord community bot built with Python, `discord.py`, and SQLite. Use `/help` for member commands and `/staff-help` for the full staff command list.
 
-## Included modules
+## Features
 
-- **Moderation:** warn, mute/timeout, unmute, kick, ban, and unban slash commands require a non-empty reason; purge accepts an optional reason. Configure a server mute role and timed role mutes survive restarts; without a configured role the bot uses Discord timeouts. Member cases persist the moderator, reason, timestamp, and DM delivery status. Affected users receive a configurable DM with selectable action, moderator, reason, and case number. Moderation logs can go to the configured category route, an extra channel, and optionally the channel where the command ran. Channel lockdowns save and restore the bot-managed @everyone send/thread overwrites.
-- **Role management:** staff with Manage Roles can use `/role give` and `/role take` to manage assignable roles for members. A reason is required and changes are logged in the separately configurable `roles` category. Toggle the feature with `/config module role-management`.
-- **Rule-based escalation:** optional case-count escalation on `/mod warn`, with a rolling time window and configurable warning/timeout/kick/ban thresholds. It starts disabled. Repeated-case staff alerts can be sent to a private channel and optionally mention configured staff roles.
-- **Logging:** message edits/deletions, member joins/leaves, moderation cases, role grants/removals, and AutoMod blocks to a configurable default channel. Messages, members, channels, roles, voice, moderation, and automod can each have their own channel.
-- **Welcome:** optional welcome channel and customizable message.
-- **Automod:** configurable invite-link and repeated-message filters with escalating timeouts. A separate native Discord AutoMod module blocks Discord's Commonly Flagged Words preset and your custom keyword list before messages are posted; blocks are logged.
-- **Reputation:** members can give and take reputation, check scores, and view the server leaderboard. Thank-you replies can award one point automatically (at most once per giver-recipient pair per day). Staff can set per-action give/take limits and an optional leaderboard channel whose post is edited when scores change. The bot creates and manages award roles by default: #1 gets **Most Loved**, and #2–#3 share **Community Favorite**; assignments move automatically with the live standings.
-- **Help:** `/help` shows member commands; staff with moderation permissions can use `/staff-help` for the full command reference.
-- **Configuration:** enable or disable modules and moderation commands, and set channels from `/config`. Reputation is enabled by default and can be managed under `/config reputation`.
-- **Translator:** optional Python DeepL extension ported from `Charon-IIII/Translator-Bot`; reply to a message with `.tr` for automatic detection or `.tr <language code>` to choose a source language, for example `.tr PL` or `.tr DE`. Use a two-letter source code supported by DeepL. It reuses a channel webhook, suppresses mention parsing, caches translations, and applies a short per-user cooldown.
-
-Features are configured per server. Slash commands are registered globally by default; set `SYNC_GUILD_ID` in `.env` while developing to update a test server immediately.
+- Moderation cases with required reasons, configurable member DMs, and separately routed logs. Purge reasons are optional.
+- Channel lockdowns, timed mutes, configurable warning escalation, and repeat-case staff alerts.
+- Event logs, welcome messages, role management, AutoMod filters, and reputation with a live leaderboard.
+- Optional DeepL translation: reply to a message with `.tr` or `.tr DE` to choose the source language.
 
 ## Requirements
 
-- Python 3.11 or newer
-- A Discord application and bot token
-- Discord bot permissions: View Channels, Send Messages, Embed Links, Read Message History, Manage Messages, Manage Channels, View Audit Log, Moderate Members, Kick Members, and Ban Members as needed by enabled features; Manage Roles is needed for role management, a server mute role, or reputation awards, and Manage Webhooks is needed when enabling Translator
-- The **Server Members Intent** enabled in the Discord Developer Portal for welcome/member logging and reputation award role syncing
-- Optional: **Message Content Intent** in the Developer Portal and `MESSAGE_CONTENT_INTENT=true` in `.env` for invite/repeat automod, automatic thank-you reputation, the `.tr` reply command, and full message text in edit/delete logs. Without it, slash commands and manual reputation commands work and message event metadata is still logged.
-- Optional: a DeepL API key as `DEEPL_API_KEY` in `.env` for the translator module.
+- Python 3.11 or newer and a Discord application with a bot user.
+- Base bot permissions: View Channels, Send Messages, Embed Links, and Read Message History.
+- Enable **Server Members Intent** in the Discord Developer Portal. Enable **Message Content Intent** only for features that need message text, such as translation and text-based filters.
+- Grant feature permissions as needed: Manage Server for Discord AutoMod; Manage Messages for purge; Manage Channels for lockdown; Moderate Members, Kick Members, and Ban Members for moderation; Manage Roles for role tools, mute roles, and reputation awards; Manage Webhooks for translation; View Audit Log for event attribution.
 
-## Run locally
+## Install and run
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
-# Set DISCORD_TOKEN in .env
+```
+
+Set `DISCORD_TOKEN` in `.env`, then start the bot:
+
+```powershell
 python -m community_bot
 ```
 
-Invite the bot with the `bot` and `applications.commands` scopes and the permissions above, including Manage Server for native AutoMod rules. Use `/config` in your server to enable modules and configure log/welcome channels. The first server administrator should run `/config setup`; `/config guide` shows the next steps. Use `/config command` to toggle individual moderation commands such as `mod-purge`. Members can use `/help`, and staff can use `/staff-help` for the command reference.
+Keep `.env` private and never commit your bot token. SQLite data is stored at `data/community_bot.sqlite3` by default; set `DATABASE_PATH` to change it. Back up the database regularly.
 
-Set the default logging destination with `/config log-channel`, then optionally route a category with `/config log-route` (categories: `messages`, `members`, `channels`, `roles`, `voice`, `moderation`, `automod`). Passing no channel to a route resets it to the default channel. Enable `flagged-words` in `/config module`, or use `/config flagged-words enabled`; manage the custom list with `/config flagged-words add`, `remove`, and `list`. The native preset and custom list require Discord AutoMod rule permissions; Discord's preset requires Community features on the server. Discord displays its own block feedback to the member, and the bot logs the matched rule in the `automod` category.
+## Discord setup
 
-Moderation log delivery can be configured with `/config moderation-logs`: set an extra destination channel, enable a copy to the channel where the command was run, enable or disable case DMs to affected members, and choose whether those DMs include the action, moderator, reason, and case number. The normal `moderation` category route remains active. Use `/config moderation-logs show` to review these settings. Only enable command-channel copies in a staff-visible channel because the case log can contain moderation reasons.
+1. Create a Discord application and bot, enable the required intents, then invite it with the `bot` and `applications.commands` scopes.
+2. Run `/config setup`, then `/config guide` in your server.
+3. Set a log destination with `/config log-channel` and optionally route categories with `/config log-route`.
+4. Enable only the modules you need with `/config module`. Use `/config show` to review the configuration.
 
-Staff with **Manage Channels** can use `/mod lockdown <channel> <reason>`, `/mod unlock <channel> <reason>`, and `/mod lockdown-status [channel]`. A lockdown denies message and thread permissions in existing role and member-specific overwrites, so a normal role's channel-level allow cannot bypass the lock. Configure trusted staff exceptions with `/config lockdown bypass-role <role> <enabled>` and review them with `/config lockdown show`; with no bypass roles configured, all non-administrator members are blocked. Previous role/member values are saved in SQLite and restored on unlock, while unrelated permission changes are preserved. Discord's Administrator permission inherently bypasses channel overwrites. Lockdown and unlock actions go to the moderation log destinations and are not member moderation cases.
+## Common commands
 
-Progressive sanctions can be configured with `/config escalation window`, `/config escalation level`, and `/config escalation enabled`. The starter thresholds are a 30-minute mute on the second documented violation and a three-day mute from the third; adjust them to match staff judgement, and add kick/ban levels only if desired. Set `/config escalation mute-role` to use your server's existing role for `/mod timeout` and timeout escalation, or clear it to use Discord timeouts. The role must be below the bot's highest role and configured to restrict the relevant text/voice permissions. Timed role mutes are stored in SQLite and removed automatically after expiry, including after bot restarts. `/mod warn` applies the configured level to the next violation; direct `/mod timeout`, `/mod kick`, and `/mod ban` remain available for staff to decide severity, including immediate severe cases. `/mod unmute` removes the role mute and/or Discord timeout. Set `/config escalation alert-channel` and `/config escalation alert-threshold` for a staff review notice, then optionally add mention roles with `/config escalation alert-role`. Alerts ask staff to review and never apply an extra punishment by themselves. Counts use this bot's stored moderation cases within the configured window; cases from Dyno, Arcane, or YAGPDB are not imported.
+- `/help` — member command guide; `/staff-help` — staff command reference.
+- `/mod warn`, `/mod timeout`, `/mod kick`, `/mod ban` — moderation actions; provide a reason. `/mod purge` accepts an optional reason.
+- `/mod lockdown` and `/mod unlock` — lock or restore a channel. Configure staff exceptions with `/config lockdown bypass-role` before locking.
+- `/config moderation-logs` — configure extra moderation log destinations and member DMs.
+- `/config escalation` — configure automatic escalation and staff alerts.
+- `/config flagged-words` — enable Discord's Commonly Flagged Words filter and manage custom terms.
+- `/rep give`, `/rep take`, `/rep score`, `/rep leaderboard` — member reputation commands.
+- `.tr` or `.tr <language code>` — translate a replied-to message into English. Add `DEEPL_API_KEY` to `.env` and set `MESSAGE_CONTENT_INTENT=true` to use this feature.
 
-For message, member, channel, role, kick, ban, and unban logs, grant **View Audit Log**. The bot matches recent audit entries by action, target, and channel where available so moderators and reasons appear when Discord provides an unambiguous match. If a match is missing or ambiguous, the log says so rather than guessing. Invite/repeat-filter hits are sent to the `automod` log route and are never added to moderation cases.
-
-For the translator, add `DEEPL_API_KEY` to `.env`, restart the bot, enable Translator via `/config module`, then reply to a message with `.tr` for automatic source-language detection or `.tr <language code>` to specify one, such as `.tr PL` or `.tr DE`. The command accepts a two-letter source code supported by DeepL.
-
-Reputation can be disabled with `/config module` or tuned with `/config reputation max-give`, `/config reputation max-take`, and `/config reputation auto-thanks`. The default manual limits are five points per give/take command; scores can go below zero. Automatic thanks detection awards one point for a short thank-you reply, and each member can earn at most one automatic point per giver per UTC day. It recognizes common phrases including “thanks”, “thank you”, “thx”, “ty”, “danke”, “vielen Dank”, “merci”, “gracias”, and “much appreciated”. Set `/config reputation leaderboard-channel` to post a persistent top-ten board; the bot edits that same post when scores change. Award roles are on by default: the bot creates **Most Loved** for #1 and **Community Favorite** for #2–#3, then reassigns them as the leaderboard changes and after restarts. Turn awards off with `/config reputation roles enabled: false`. The bot needs **Manage Roles**, and its highest role must be above the two award roles. `/rep give`, `/rep take`, `/rep score`, and `/rep leaderboard` are available to all members while Reputation is enabled.
-
-## Deploy on Oracle Cloud Infrastructure Always Free
-
-The bot is a small, always-on Python process and fits comfortably on an Always Free Ampere A1 VM for a single community server. A 1 OCPU / 6 GB Ubuntu ARM64 instance is more than enough; the actual free allocation and capacity availability depend on your tenancy and region. Oracle can reclaim idle Always Free compute instances, so retain backups of the SQLite database and configuration.
-
-On Ubuntu ARM64, install Python 3.11+, create a dedicated service account, clone this project to `/opt/community-bot`, then create a virtual environment, install `requirements.txt`, and create `.env` with `DISCORD_TOKEN`. Protect the secret with `chmod 600 .env`. Copy `deploy/community-bot.service` to `/etc/systemd/system/community-bot.service`, then run `sudo systemctl daemon-reload`, `sudo systemctl enable --now community-bot`, and inspect startup with `sudo journalctl -u community-bot -f`. The service file assumes the project is at `/opt/community-bot` and runs as `communitybot`. Keep `.env`, SQLite files, and backups out of git.
-
-## Data and operational notes
-
-- SQLite data lives in `data/community_bot.sqlite3` by default; override with `DATABASE_PATH`.
-- Back up the SQLite database before upgrades and periodically while running.
-- Discord audit logs and channel logging are separate: this bot records events it receives and its own cases, but does not reproduce every Dyno/Arcane/YAGPDB dashboard or historical log feature.
-- Do a staged rollout alongside the existing bots first. Verify permissions, log coverage, automod thresholds, and your existing role hierarchy before removing the current bots.
-- The project intentionally has no bot token in source control. Rotate any token that was ever committed or shared.
+See `/staff-help` for command permissions and the complete staff command list. AutoMod and text-based features also require their corresponding Discord permissions and intents.
