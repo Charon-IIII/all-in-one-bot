@@ -43,8 +43,8 @@ Keep `.env` private and never commit your bot token. SQLite data is stored at `d
 ## Common commands
 
 - `/help` — member command guide; `/staff-help` — staff command reference.
-- `/mod warn`, `/mod timeout`, `/mod kick`, `/mod ban` — moderation actions; provide a reason. `/mod purge` accepts an optional reason.
-- `/mod lockdown` and `/mod unlock` — lock or restore a channel. Configure staff exceptions with `/config lockdown bypass-role` before locking.
+- `/warn`, `/timeout`, `/kick`, `/ban` — moderation actions; provide a reason. `/purge` accepts an optional reason.
+- `/lockdown` and `/unlock` — lock or restore a channel. Configure staff exceptions with `/config lockdown bypass-role` before locking.
 - `/config moderation-logs` — configure extra moderation log destinations and member DMs.
 - `/config escalation` — configure automatic escalation and staff alerts.
 - `/config flagged-words` — enable Discord's Commonly Flagged Words filter and manage custom terms.

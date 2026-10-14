@@ -93,12 +93,12 @@ class Configuration(commands.Cog):
         await interaction.response.send_message(f"Module **{name.value}** {'enabled' if enabled else 'disabled'}.{note}", ephemeral=True)
 
     @config.command(name="command", description="Enable or disable an individual moderation command")
-    @app_commands.describe(name="Command key, for example mod-warn", enabled="Should the command be enabled?")
-    @app_commands.choices(name=[app_commands.Choice(name=x, value=x) for x in COMMANDS])
+    @app_commands.describe(name="Command to configure", enabled="Should the command be enabled?")
+    @app_commands.choices(name=[app_commands.Choice(name=x.removeprefix("mod-"), value=x) for x in COMMANDS])
     @app_commands.checks.has_permissions(manage_guild=True)
     async def command_toggle(self, interaction: discord.Interaction, name: app_commands.Choice[str], enabled: bool) -> None:
         await self.bot.store.update_settings(interaction.guild_id, commands={name.value: enabled})
-        await interaction.response.send_message(f"Command **{name.value}** {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+        await interaction.response.send_message(f"Command **/{name.name}** {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
     @config.command(name="log-channel", description="Set the default channel for server and moderation logs")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -309,13 +309,13 @@ class Configuration(commands.Cog):
             ephemeral=True,
         )
 
-    @escalation.command(name="enabled", description="Enable or disable automatic escalation for /mod warn")
+    @escalation.command(name="enabled", description="Enable or disable automatic escalation for /warn")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def escalation_enabled(self, interaction: discord.Interaction, enabled: bool) -> None:
         await self.bot.store.update_settings(interaction.guild_id, escalation_enabled=enabled)
         state = "enabled" if enabled else "disabled"
         await interaction.response.send_message(
-            f"Automatic escalation is {state}. It only applies to new `/mod warn` cases; existing bot cases are used as history.",
+            f"Automatic escalation is {state}. It only applies to new `/warn` cases; existing bot cases are used as history.",
             ephemeral=True,
         )
 
@@ -405,9 +405,9 @@ class Configuration(commands.Cog):
             return
         await self.bot.store.update_settings(interaction.guild_id, mute_role_id=role.id if role else None)
         if role:
-            message = f"{role.mention} is now the mute role for `/mod timeout` and timeout escalations. Configure it to restrict the appropriate text and voice permissions."
+            message = f"{role.mention} is now the mute role for `/timeout` and timeout escalations. Configure it to restrict the appropriate text and voice permissions."
         else:
-            message = "Mute role cleared. `/mod timeout` and timeout escalations will use Discord timeouts again. Existing role mutes will expire using their saved role."
+            message = "Mute role cleared. `/timeout` and timeout escalations will use Discord timeouts again. Existing role mutes will expire using their saved role."
         await interaction.response.send_message(message, ephemeral=True)
 
     @escalation.command(name="show", description="Show escalation rules and staff alert settings")
@@ -453,7 +453,9 @@ class Configuration(commands.Cog):
     async def show(self, interaction: discord.Interaction) -> None:
         settings = await self.bot.store.get_settings(interaction.guild_id)
         enabled = ", ".join(name.replace("_", "-") for name, active in settings["modules"].items() if active) or "none"
-        disabled = ", ".join(name for name, active in settings["commands"].items() if not active) or "none"
+        disabled = ", ".join(
+            f"/{name.removeprefix('mod-')}" for name, active in settings["commands"].items() if not active
+        ) or "none"
         log = f"<#{settings['log_channel_id']}>" if settings["log_channel_id"] else "not set"
         welcome = f"<#{settings['welcome_channel_id']}>" if settings["welcome_channel_id"] else "not set"
         mute_role = f"<@&{settings['mute_role_id']}>" if settings.get("mute_role_id") else "Discord timeout"

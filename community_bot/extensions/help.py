@@ -91,32 +91,32 @@ class Help(commands.Cog):
         embed.add_field(
             name="🛡️ Moderation · requires Moderate Members",
             value=(
-                "`/mod warn <member> <reason>` — record a warning.\n"
-                "`/mod timeout <member> <minutes> <reason>` — mute a member.\n"
-                "`/mod unmute <member> <reason>` — remove a mute.\n"
-                "`/mod history <member>` — review saved cases and reasons."
+                "`/warn <member> <reason>` — record a warning.\n"
+                "`/timeout <member> <minutes> <reason>` — mute a member.\n"
+                "`/unmute <member> <reason>` — remove a mute.\n"
+                "`/history <member>` — review saved cases and reasons."
             ),
             inline=False,
         )
         embed.add_field(
             name="🚪 Member actions · requires Kick Members or Ban Members",
             value=(
-                "`/mod kick <member> <reason>` — remove a member from the server.\n"
-                "`/mod ban <member> <reason>` · `/mod unban <user_id> <reason>` — manage bans."
+                "`/kick <member> <reason>` — remove a member from the server.\n"
+                "`/ban <member> <reason>` · `/unban <user_id> <reason>` — manage bans."
             ),
             inline=False,
         )
         embed.add_field(
             name="🧹 Message cleanup · requires Manage Messages",
-            value="`/mod purge <amount> [reason]` — delete recent messages; the reason is optional.",
+            value="`/purge <amount> [reason]` — delete recent messages; the reason is optional.",
             inline=False,
         )
         embed.add_field(
             name="🔒 Channel lockdown · requires Manage Channels",
             value=(
-                "`/mod lockdown <channel> <reason>` — block regular roles and member-specific allows from sending messages or creating threads; saves their previous permissions.\n"
-                "`/mod unlock <channel> <reason>` — restore the saved role/member permissions.\n"
-                "`/mod lockdown-status [channel]` — review active bot-managed lockdowns. Configure trusted bypass roles with `/config lockdown bypass-role` or review them with `/config lockdown show`."
+                "`/lockdown <channel> <reason>` — block regular roles and member-specific allows from sending messages or creating threads; saves their previous permissions.\n"
+                "`/unlock <channel> <reason>` — restore the saved role/member permissions.\n"
+                "`/lockdown-status [channel]` — review active bot-managed lockdowns. Configure trusted bypass roles with `/config lockdown bypass-role` or review them with `/config lockdown show`."
             ),
             inline=False,
         )

@@ -62,8 +62,6 @@ class Moderation(commands.Cog):
     async def before_expire_role_mutes(self) -> None:
         await self.bot.wait_until_ready()
 
-    mod = app_commands.Group(name="mod", description="Moderation and case history")
-
     async def record(
         self,
         interaction: discord.Interaction,
@@ -256,7 +254,7 @@ class Moderation(commands.Cog):
         await interaction.response.send_message("The reason cannot be empty or contain only whitespace.", ephemeral=True)
         return None
 
-    @mod.command(name="warn", description="Record a warning")
+    @app_commands.command(name="warn", description="Record a warning")
     @module_enabled("moderation", "mod-warn")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def warn(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -283,7 +281,7 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, member, recorded_action, reason, dm_channel)
         await interaction.response.send_message(f"{member.mention}: {result} Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="timeout", description="Temporarily mute a member (mute role or Discord timeout)")
+    @app_commands.command(name="timeout", description="Temporarily mute a member (mute role or Discord timeout)")
     @module_enabled("moderation", "mod-timeout")
     @app_commands.checks.has_permissions(moderate_members=True)
     @app_commands.describe(minutes="Duration in minutes (1–40320)")
@@ -303,7 +301,7 @@ class Moderation(commands.Cog):
         label = "mute role" if used_role else "Discord timeout"
         await interaction.response.send_message(f"{member.mention} received a {minutes}-minute {label}. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="unmute", description="Remove a mute role and/or Discord timeout")
+    @app_commands.command(name="unmute", description="Remove a mute role and/or Discord timeout")
     @module_enabled("moderation", "mod-unmute")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def unmute(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -340,7 +338,7 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, member, "Unmute", reason)
         await interaction.response.send_message(f"{member.mention} was unmuted. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="kick", description="Remove a member from the server")
+    @app_commands.command(name="kick", description="Remove a member from the server")
     @module_enabled("moderation", "mod-kick")
     @app_commands.checks.has_permissions(kick_members=True)
     async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -356,7 +354,7 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, member, "Kick", reason, dm_channel)
         await interaction.response.send_message(f"{member} was removed. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="ban", description="Ban a member")
+    @app_commands.command(name="ban", description="Ban a member")
     @module_enabled("moderation", "mod-ban")
     @app_commands.checks.has_permissions(ban_members=True)
     async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -372,7 +370,7 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, member, "Ban", reason, dm_channel)
         await interaction.response.send_message(f"{member} was banned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="unban", description="Unban a member by Discord ID")
+    @app_commands.command(name="unban", description="Unban a member by Discord ID")
     @module_enabled("moderation", "mod-unban")
     @app_commands.checks.has_permissions(ban_members=True)
     async def unban(self, interaction: discord.Interaction, user_id: str, reason: app_commands.Range[str, 1, 500]) -> None:
@@ -389,7 +387,7 @@ class Moderation(commands.Cog):
         case_id, dm_sent = await self.record(interaction, user, "Unban", reason)
         await interaction.response.send_message(f"{user} was unbanned. Case **#{case_id}**. {self.delivery_note(dm_sent)}", ephemeral=True)
 
-    @mod.command(name="lockdown", description="Prevent regular members from sending messages in a text channel")
+    @app_commands.command(name="lockdown", description="Prevent regular members from sending messages in a text channel")
     @module_enabled("moderation", "mod-lockdown")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Text channel to lock", reason="Why the channel is being locked")
@@ -409,7 +407,7 @@ class Moderation(commands.Cog):
             return
         if await self.bot.store.get_channel_lockdown(guild.id, channel.id):
             await interaction.response.send_message(
-                "This channel is already locked by the bot. Use `/mod unlock` to restore its saved permissions.", ephemeral=True
+                "This channel is already locked by the bot. Use `/unlock` to restore its saved permissions.", ephemeral=True
             )
             return
 
@@ -472,14 +470,14 @@ class Moderation(commands.Cog):
             return
         details = (
             f"{channel.mention} was locked. All existing role and member send/thread overwrites were denied "
-            "except configured lockdown bypass roles. Previous values were saved for `/mod unlock`."
+            "except configured lockdown bypass roles. Previous values were saved for `/unlock`."
         )
         self.bot.dispatch(
             "mod_action", guild, interaction.user, "Channel lockdown enabled", reason, details, interaction.channel
         )
         await interaction.followup.send(
             f"Locked {channel.mention}. Regular roles and member-specific allows are blocked; configured bypass roles can still chat. "
-            "Use `/mod unlock` to restore the saved permissions.", ephemeral=True
+            "Use `/unlock` to restore the saved permissions.", ephemeral=True
         )
 
     @staticmethod
@@ -495,7 +493,7 @@ class Moderation(commands.Cog):
                 return "member"
         return None
 
-    @mod.command(name="unlock", description="Restore saved role and member permissions for a channel")
+    @app_commands.command(name="unlock", description="Restore saved role and member permissions for a channel")
     @module_enabled("moderation", "mod-unlock")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Text channel to unlock", reason="Why the channel is being unlocked")
@@ -581,7 +579,7 @@ class Moderation(commands.Cog):
         self.bot.dispatch("mod_action", guild, interaction.user, "Channel lockdown removed", reason, details, interaction.channel)
         await interaction.followup.send(f"Unlocked {channel.mention} and restored its saved permissions.", ephemeral=True)
 
-    @mod.command(name="lockdown-status", description="Show channels currently locked by the bot")
+    @app_commands.command(name="lockdown-status", description="Show channels currently locked by the bot")
     @module_enabled("moderation", "mod-lockdown-status")
     @app_commands.checks.has_permissions(manage_channels=True)
     @app_commands.describe(channel="Optional channel to check")
@@ -608,7 +606,7 @@ class Moderation(commands.Cog):
         ]
         await interaction.response.send_message("**Bot-managed channel lockdowns**\n" + "\n".join(lines), ephemeral=True)
 
-    @mod.command(name="purge", description="Delete recent messages in the channel")
+    @app_commands.command(name="purge", description="Delete recent messages in the channel")
     @module_enabled("moderation", "mod-purge")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def purge(
@@ -629,7 +627,7 @@ class Moderation(commands.Cog):
         )
         await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
 
-    @mod.command(name="history", description="Show a member's recent cases recorded by this bot")
+    @app_commands.command(name="history", description="Show a member's recent cases recorded by this bot")
     @module_enabled("moderation", "mod-history")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def history(self, interaction: discord.Interaction, member: discord.Member) -> None:
